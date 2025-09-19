@@ -1,0 +1,9 @@
+[package]
+name = "CouponPlatform"
+version = "0.0.1"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui", subdir = "crates/sui-framework/packages/sui-framework", rev = "main" }
+
+[addresses]
+coupon_platform = "0x0"

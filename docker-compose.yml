@@ -1,0 +1,51 @@
+version: "3.9"
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: coupon_mariadb
+    environment:
+      - MARIADB_ROOT_PASSWORD=changeme
+      - MARIADB_DATABASE=coupon_db
+      - MARIADB_USER=coupon_user
+      - MARIADB_PASSWORD=coupon_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: coupon_app
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=mariadb
+      - DB_PORT=3306
+      - DB_USER=coupon_user
+      - DB_PASSWORD=coupon_pass
+      - DB_NAME=coupon_db
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./scripts:/app/scripts
+    command: ["npm", "start"]
+
+  adminer:
+    image: adminer:4
+    container_name: coupon_adminer
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:
