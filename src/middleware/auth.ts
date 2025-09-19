@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+
+// 환경변수 로드
+dotenv.config();
 
 export interface AuthenticatedRequest extends Request {
   userAddress?: string;
