@@ -11,6 +11,8 @@ import { v4 as uuidv4 } from "uuid";
 import { suiObjectManager } from "../sui/object-manager";
 import { suiSyncService } from "../sui/sync-service";
 import { importKeypairFromMnemonic } from "../sui/wallet";
+import { optimizedTransactionManager } from "../sui/optimized-transaction-manager";
+import { TransactionBlock } from "@mysten/sui.js/transactions";
 
 export const marketplaceRouter = Router();
 
@@ -123,18 +125,26 @@ marketplaceRouter.post(
         }
       );
 
-      // Sui 블록체인에 판매 등록 (내부적으로만 처리)
+      // Sui 블록체인에 판매 등록 (PTB 최적화 적용)
       try {
         const userRepo = AppDataSource.getRepository(User);
         const seller = await userRepo.findOne({ where: { id: sellerId } });
         if (seller?.mnemonic && body.objectId) {
           const keypair = importKeypairFromMnemonic(seller.mnemonic);
-          await suiObjectManager.listCouponForSale(
+
+          // PTB 최적화: 기존 단일 트랜잭션 대신 최적화된 트랜잭션 사용
+          const tx = new TransactionBlock();
+          tx.moveCall({
+            target: `${process.env.COUPON_PACKAGE_ID}::coupon::list_coupon_for_sale`,
+            arguments: [tx.object(body.objectId), tx.pure(body.price)],
+          });
+
+          await optimizedTransactionManager.executeWithGasOptimization(
             keypair,
-            body.objectId,
-            BigInt(body.price)
+            tx
           );
-          console.log("🔗 Sui 블록체인에 판매 등록 완료");
+
+          console.log("🔗 Sui 블록체인에 판매 등록 완료 (PTB 최적화)");
         }
       } catch (error: any) {
         console.warn("Sui 판매 등록 실패 (내부 처리):", error.message);
@@ -702,6 +712,381 @@ marketplaceRouter.post(
         error: err.message,
         success: false,
       });
+    }
+  }
+);
+
+// ===== PTB 최적화된 새로운 API 엔드포인트들 =====
+
+/**
+ * @openapi
+ * /marketplace/ptb/issue-and-list:
+ *   post:
+ *     tags:
+ *       - 5️⃣ 거래 마켓플레이스 (PTB 최적화)
+ *     summary: 쿠폰 발행 + 판매 등록 (PTB 최적화)
+ *     description: 쿠폰을 발행하고 즉시 판매 등록을 단일 트랜잭션으로 처리합니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: JWT 토큰
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - couponType
+ *               - value
+ *               - expiryDays
+ *               - encryptedData
+ *               - price
+ *             properties:
+ *               couponType:
+ *                 type: string
+ *                 example: "coffee"
+ *               value:
+ *                 type: string
+ *                 example: "5000"
+ *               expiryDays:
+ *                 type: string
+ *                 example: "30"
+ *               encryptedData:
+ *                 type: string
+ *                 example: "encrypted_coupon_data"
+ *               price:
+ *                 type: string
+ *                 example: "1000"
+ *     responses:
+ *       200:
+ *         description: 쿠폰 발행 및 판매 등록 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 issueResult:
+ *                   type: string
+ *                 listResult:
+ *                   type: string
+ *                 gasUsed:
+ *                   type: string
+ *       400:
+ *         description: 요청 오류
+ */
+marketplaceRouter.post(
+  "/ptb/issue-and-list",
+  requireUser,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const body = req.body;
+      const sellerId = req.userId!;
+
+      // 입력 검증
+      if (
+        !body.couponType ||
+        !body.value ||
+        !body.expiryDays ||
+        !body.encryptedData ||
+        !body.price
+      ) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const userRepo = AppDataSource.getRepository(User);
+      const seller = await userRepo.findOne({ where: { id: sellerId } });
+
+      if (!seller?.mnemonic) {
+        return res.status(400).json({ error: "User wallet not found" });
+      }
+
+      const keypair = importKeypairFromMnemonic(seller.mnemonic);
+
+      // PTB 최적화: 발행 + 판매 등록을 단일 트랜잭션으로 처리
+      const result = await optimizedTransactionManager.issueAndListCoupon(
+        keypair,
+        {
+          provider: seller.address!,
+          couponType: body.couponType,
+          value: BigInt(body.value),
+          expiryDays: BigInt(body.expiryDays),
+          encryptedData: body.encryptedData,
+        },
+        {
+          price: BigInt(body.price),
+        }
+      );
+
+      console.log("🚀 PTB 최적화: 쿠폰 발행 + 판매 등록 완료", {
+        gasUsed: result.gasUsed,
+        issueResult: result.issueResult,
+        listResult: result.listResult,
+      });
+
+      res.json({
+        message: "Coupon issued and listed successfully with PTB optimization",
+        issueResult: result.issueResult,
+        listResult: result.listResult,
+        gasUsed: result.gasUsed,
+      });
+    } catch (err: any) {
+      console.error("PTB 발행 + 판매 등록 오류:", err);
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+/**
+ * @openapi
+ * /marketplace/ptb/buy-bundle:
+ *   post:
+ *     tags:
+ *       - 5️⃣ 거래 마켓플레이스 (PTB 최적화)
+ *     summary: 쿠폰 번들 구매 (PTB 최적화)
+ *     description: 여러 쿠폰을 번들로 구매하여 할인 혜택을 받습니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: JWT 토큰
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - coupons
+ *               - totalPrice
+ *               - discountRate
+ *               - paymentAmount
+ *             properties:
+ *               coupons:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["0x123...", "0x456...", "0x789..."]
+ *               totalPrice:
+ *                 type: string
+ *                 example: "3000"
+ *               discountRate:
+ *                 type: number
+ *                 example: 10
+ *               paymentAmount:
+ *                 type: string
+ *                 example: "2700"
+ *     responses:
+ *       200:
+ *         description: 번들 구매 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 digest:
+ *                   type: string
+ *                 gasUsed:
+ *                   type: string
+ *       400:
+ *         description: 요청 오류
+ */
+marketplaceRouter.post(
+  "/ptb/buy-bundle",
+  requireUser,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const body = req.body;
+      const buyerId = req.userId!;
+
+      // 입력 검증
+      if (
+        !body.coupons ||
+        !Array.isArray(body.coupons) ||
+        !body.totalPrice ||
+        !body.discountRate ||
+        !body.paymentAmount
+      ) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const userRepo = AppDataSource.getRepository(User);
+      const buyer = await userRepo.findOne({ where: { id: buyerId } });
+
+      if (!buyer?.mnemonic) {
+        return res.status(400).json({ error: "User wallet not found" });
+      }
+
+      const keypair = importKeypairFromMnemonic(buyer.mnemonic);
+
+      // PTB 최적화: 번들 구매 처리
+      const result = await optimizedTransactionManager.buyCouponBundle(
+        keypair,
+        {
+          coupons: body.coupons,
+          totalPrice: BigInt(body.totalPrice),
+          discountRate: body.discountRate,
+        },
+        BigInt(body.paymentAmount)
+      );
+
+      if (!result.success) {
+        return res
+          .status(400)
+          .json({ error: result.error || "Bundle purchase failed" });
+      }
+
+      console.log("🚀 PTB 최적화: 번들 구매 완료", {
+        gasUsed: result.gasUsed,
+        digest: result.digest,
+        couponCount: body.coupons.length,
+        discountRate: body.discountRate,
+      });
+
+      res.json({
+        message: "Coupon bundle purchased successfully with PTB optimization",
+        digest: result.digest,
+        gasUsed: result.gasUsed,
+        couponCount: body.coupons.length,
+        discountRate: body.discountRate,
+      });
+    } catch (err: any) {
+      console.error("PTB 번들 구매 오류:", err);
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+/**
+ * @openapi
+ * /marketplace/ptb/batch-issue:
+ *   post:
+ *     tags:
+ *       - 5️⃣ 거래 마켓플레이스 (PTB 최적화)
+ *     summary: 배치 쿠폰 발행 (PTB 최적화)
+ *     description: 여러 쿠폰을 한 번에 발행하여 가스비를 절약합니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: JWT 토큰
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - coupons
+ *             properties:
+ *               coupons:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - couponType
+ *                     - value
+ *                     - expiryDays
+ *                     - encryptedData
+ *                   properties:
+ *                     couponType:
+ *                       type: string
+ *                       example: "coffee"
+ *                     value:
+ *                       type: string
+ *                       example: "5000"
+ *                     expiryDays:
+ *                       type: string
+ *                       example: "30"
+ *                     encryptedData:
+ *                       type: string
+ *                       example: "encrypted_coupon_data"
+ *     responses:
+ *       200:
+ *         description: 배치 발행 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 digests:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 gasUsed:
+ *                   type: string
+ *       400:
+ *         description: 요청 오류
+ */
+marketplaceRouter.post(
+  "/ptb/batch-issue",
+  requireUser,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const body = req.body;
+      const issuerId = req.userId!;
+
+      // 입력 검증
+      if (
+        !body.coupons ||
+        !Array.isArray(body.coupons) ||
+        body.coupons.length === 0
+      ) {
+        return res
+          .status(400)
+          .json({ error: "Missing or empty coupons array" });
+      }
+
+      const userRepo = AppDataSource.getRepository(User);
+      const issuer = await userRepo.findOne({ where: { id: issuerId } });
+
+      if (!issuer?.mnemonic) {
+        return res.status(400).json({ error: "User wallet not found" });
+      }
+
+      const keypair = importKeypairFromMnemonic(issuer.mnemonic);
+
+      // PTB 최적화: 배치 발행 처리
+      const result = await optimizedTransactionManager.batchIssueCoupons(
+        keypair,
+        body.coupons.map((coupon: any) => ({
+          provider: issuer.address!,
+          couponType: coupon.couponType,
+          value: BigInt(coupon.value),
+          expiryDays: BigInt(coupon.expiryDays),
+          encryptedData: coupon.encryptedData,
+        }))
+      );
+
+      console.log("🚀 PTB 최적화: 배치 쿠폰 발행 완료", {
+        gasUsed: result.gasUsed,
+        couponCount: body.coupons.length,
+        digests: result.digests,
+      });
+
+      res.json({
+        message:
+          "Batch coupon issuance completed successfully with PTB optimization",
+        digests: result.digests,
+        gasUsed: result.gasUsed,
+        couponCount: body.coupons.length,
+      });
+    } catch (err: any) {
+      console.error("PTB 배치 발행 오류:", err);
+      res.status(400).json({ error: err.message });
     }
   }
 );
