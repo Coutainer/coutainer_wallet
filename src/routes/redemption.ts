@@ -5,7 +5,12 @@ import { User } from "../entities/User";
 import { CouponObject, CouponObjectState } from "../entities/CouponObject";
 import { Point } from "../entities/Point";
 import { EscrowAccount } from "../entities/EscrowAccount";
-import { requireUser, AuthenticatedRequest } from "../middleware/auth";
+import {
+  requireUser,
+  requireUserWithRole,
+  requireConsumer,
+  AuthenticatedRequest,
+} from "../middleware/auth";
 import { v4 as uuidv4 } from "uuid";
 import jwt from "jsonwebtoken";
 
@@ -83,7 +88,8 @@ const redeemTokenSchema = z.object({
  */
 redemptionRouter.post(
   "/generate-token",
-  requireUser,
+  requireUserWithRole,
+  requireConsumer,
   async (req: AuthenticatedRequest, res) => {
     try {
       const body = generateTokenSchema.parse(req.body);
@@ -106,7 +112,7 @@ redemptionRouter.post(
       }
 
       // 만료일 확인
-      if (new Date() > couponObject.expiration) {
+      if (new Date() > couponObject.expiresAt) {
         return res.status(400).json({ error: "Object has expired" });
       }
 
@@ -142,7 +148,6 @@ redemptionRouter.post(
         { id: body.objectId },
         {
           jti,
-          updatedAt: new Date(),
         }
       );
 
@@ -236,169 +241,173 @@ redemptionRouter.post(
  *       500:
  *         description: 서버 오류
  */
-redemptionRouter.post("/verify-token", async (req, res) => {
-  try {
-    const body = redeemTokenSchema.parse(req.body);
-    const { token } = body;
-
-    // 토큰 검증
-    let decoded: any;
+redemptionRouter.post(
+  "/verify-token",
+  requireUserWithRole,
+  requireConsumer,
+  async (req: AuthenticatedRequest, res) => {
     try {
-      decoded = jwt.verify(
-        token,
-        process.env.SESSION_SECRET || "your-secret-key-here"
-      );
-    } catch (jwtError) {
-      return res.status(400).json({ error: "Invalid or expired token" });
-    }
+      const body = redeemTokenSchema.parse(req.body);
+      const { token } = body;
 
-    const { jti, objectId, userId, remaining } = decoded;
-
-    // 오브젝트 조회
-    const objectRepo = AppDataSource.getRepository(CouponObject);
-    const couponObject = await objectRepo.findOne({
-      where: {
-        id: objectId,
-        jti,
-        state: CouponObjectState.CREATED,
-      },
-      relations: ["supplier", "stamp"],
-    });
-
-    if (!couponObject) {
-      return res
-        .status(400)
-        .json({ error: "Object not found or already used" });
-    }
-
-    // 만료일 확인
-    if (new Date() > couponObject.expiration) {
-      return res.status(400).json({ error: "Object has expired" });
-    }
-
-    // JTI 중복 사용 확인 (이미 사용된 토큰인지 확인)
-    if (couponObject.usedAt) {
-      return res.status(400).json({ error: "Token already used" });
-    }
-
-    // 트랜잭션 시작
-    const queryRunner = AppDataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // 1. Escrow에서 공급자에게 remaining 전액 지급
-      const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
-      const escrowAccount = await escrowRepo.findOne({
-        where: { supplierId: couponObject.supplierId },
-      });
-
-      if (escrowAccount && BigInt(escrowAccount.balance) >= BigInt(remaining)) {
-        // 공급자 포인트 증가
-        const pointRepo = queryRunner.manager.getRepository(Point);
-        const userRepo = queryRunner.manager.getRepository(User);
-        const supplier = await userRepo.findOne({
-          where: { id: couponObject.supplierId },
-        });
-        if (!supplier) {
-          throw new Error("Supplier not found");
-        }
-
-        const supplierPoints = await pointRepo.findOne({
-          where: { userAddress: supplier.address },
-        });
-
-        if (supplierPoints) {
-          await queryRunner.manager.update(
-            Point,
-            { userAddress: supplier.address },
-            {
-              balance: (
-                BigInt(supplierPoints.balance) + BigInt(remaining)
-              ).toString(),
-              updatedAt: new Date(),
-            }
-          );
-        } else {
-          await queryRunner.manager.save(Point, {
-            userAddress: supplier.address,
-            balance: remaining,
-            updatedAt: new Date(),
-          });
-        }
-
-        // Escrow 잔액 차감
-        const newEscrowBalance =
-          BigInt(escrowAccount.balance) - BigInt(remaining);
-        await queryRunner.manager.update(
-          EscrowAccount,
-          { id: escrowAccount.id },
-          {
-            balance: newEscrowBalance.toString(),
-            totalReleased: (
-              BigInt(escrowAccount.totalReleased) + BigInt(remaining)
-            ).toString(),
-            updatedAt: new Date(),
-          }
+      // 토큰 검증
+      let decoded: any;
+      try {
+        decoded = jwt.verify(
+          token,
+          process.env.SESSION_SECRET || "your-secret-key-here"
         );
+      } catch (jwtError) {
+        return res.status(400).json({ error: "Invalid or expired token" });
       }
 
-      // 2. 오브젝트 상태를 REDEEMED로 변경
-      await queryRunner.manager.update(
-        CouponObject,
-        { id: objectId },
-        {
-          state: CouponObjectState.REDEEMED,
-          remaining: "0",
-          usedAt: new Date(),
-          updatedAt: new Date(),
+      const { jti, objectId, userId, remaining } = decoded;
+
+      // 오브젝트 조회
+      const objectRepo = AppDataSource.getRepository(CouponObject);
+      const couponObject = await objectRepo.findOne({
+        where: {
+          id: objectId,
+          jti,
+          state: CouponObjectState.CREATED,
+        },
+        relations: ["supplier", "stamp"],
+      });
+
+      if (!couponObject) {
+        return res
+          .status(400)
+          .json({ error: "Object not found or already used" });
+      }
+
+      // 만료일 확인
+      if (new Date() > couponObject.expiresAt) {
+        return res.status(400).json({ error: "Object has expired" });
+      }
+
+      // JTI 중복 사용 확인 (이미 사용된 토큰인지 확인)
+      if (couponObject.usedAt) {
+        return res.status(400).json({ error: "Token already used" });
+      }
+
+      // 트랜잭션 시작
+      const queryRunner = AppDataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        // 1. Escrow에서 공급자에게 remaining 전액 지급
+        const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
+        const escrowAccount = await escrowRepo.findOne({
+          where: { supplierId: couponObject.supplierId },
+        });
+
+        if (
+          escrowAccount &&
+          BigInt(escrowAccount.balance) >= BigInt(remaining)
+        ) {
+          // 공급자 포인트 증가
+          const pointRepo = queryRunner.manager.getRepository(Point);
+          const userRepo = queryRunner.manager.getRepository(User);
+          const supplier = await userRepo.findOne({
+            where: { id: couponObject.supplierId },
+          });
+          if (!supplier) {
+            throw new Error("Supplier not found");
+          }
+
+          const supplierPoints = await pointRepo.findOne({
+            where: { userAddress: supplier.address },
+          });
+
+          if (supplierPoints) {
+            await queryRunner.manager.update(
+              Point,
+              { userAddress: supplier.address },
+              {
+                balance: (
+                  BigInt(supplierPoints.balance) + BigInt(remaining)
+                ).toString(),
+              }
+            );
+          } else {
+            await queryRunner.manager.save(Point, {
+              userAddress: supplier.address,
+              balance: remaining,
+            });
+          }
+
+          // Escrow 잔액 차감
+          const newEscrowBalance =
+            BigInt(escrowAccount.balance) - BigInt(remaining);
+          await queryRunner.manager.update(
+            EscrowAccount,
+            { id: escrowAccount.id },
+            {
+              balance: newEscrowBalance.toString(),
+              totalReleased: (
+                BigInt(escrowAccount.totalReleased) + BigInt(remaining)
+              ).toString(),
+            }
+          );
         }
-      );
 
-      await queryRunner.commitTransaction();
+        // 2. 오브젝트 상태를 REDEEMED로 변경
+        await queryRunner.manager.update(
+          CouponObject,
+          { id: objectId },
+          {
+            state: CouponObjectState.REDEEMED,
+            remaining: "0",
+            usedAt: new Date(),
+          }
+        );
 
-      // 포인트 이동 내역 생성
-      const pointMovements = [
-        {
-          from: `escrow_${escrowAccount?.id}`,
-          to: `supplier_${couponObject.supplierId}`,
-          amount: remaining,
-          description: "쿠폰 사용 완료 - remaining 전액 지급",
-        },
-      ];
+        await queryRunner.commitTransaction();
 
-      console.log("✅ 쿠폰 사용 완료:", {
-        objectId,
-        couponId: couponObject.couponId,
-        jti,
-        userId,
-        remaining,
-        supplier: couponObject.supplierId,
-        merchantId: body.merchantId,
-      });
+        // 포인트 이동 내역 생성
+        const pointMovements = [
+          {
+            from: `escrow_${escrowAccount?.id}`,
+            to: `supplier_${couponObject.supplierId}`,
+            amount: remaining,
+            description: "쿠폰 사용 완료 - remaining 전액 지급",
+          },
+        ];
 
-      res.json({
-        message: "Token verified and coupon redeemed successfully",
-        object: {
-          id: couponObject.id,
+        console.log("✅ 쿠폰 사용 완료:", {
+          objectId,
           couponId: couponObject.couponId,
-          title: couponObject.title,
-          remaining: "0",
-          state: CouponObjectState.REDEEMED,
-        },
-        pointMovements,
-      });
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
+          jti,
+          userId,
+          remaining,
+          supplier: couponObject.supplierId,
+          merchantId: body.merchantId,
+        });
+
+        res.json({
+          message: "Token verified and coupon redeemed successfully",
+          object: {
+            id: couponObject.id,
+            couponId: couponObject.couponId,
+            title: couponObject.title,
+            remaining: "0",
+            state: CouponObjectState.REDEEMED,
+          },
+          pointMovements,
+        });
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+      } finally {
+        await queryRunner.release();
+      }
+    } catch (err: any) {
+      console.error("토큰 검증 오류:", err);
+      res.status(400).json({ error: err.message });
     }
-  } catch (err: any) {
-    console.error("토큰 검증 오류:", err);
-    res.status(400).json({ error: err.message });
   }
-});
+);
 
 /**
  * @openapi
@@ -434,7 +443,7 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
     const expiredObjects = await objectRepo.find({
       where: {
         state: CouponObjectState.CREATED,
-        expiration: { $lt: now } as any, // TypeORM에서 LessThan 사용
+        expiresAt: { $lt: now } as any, // TypeORM에서 LessThan 사용
       },
       relations: ["issuer", "supplier"],
     });
@@ -476,14 +485,12 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
               balance: (
                 BigInt(issuerPoints.balance) + BigInt(obj.remaining)
               ).toString(),
-              updatedAt: new Date(),
             }
           );
         } else {
           await queryRunner.manager.save(Point, {
             userAddress: issuer.address,
             balance: obj.remaining,
-            updatedAt: new Date(),
           });
         }
 
@@ -504,7 +511,6 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
               totalReleased: (
                 BigInt(escrowAccount.totalReleased) + BigInt(obj.remaining)
               ).toString(),
-              updatedAt: new Date(),
             }
           );
         }
@@ -516,7 +522,6 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
           {
             state: CouponObjectState.EXPIRED,
             remaining: "0",
-            updatedAt: new Date(),
           }
         );
 

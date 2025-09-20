@@ -11,6 +11,8 @@ import { authRouter } from "./routes/auth";
 import { issuanceRouter } from "./routes/issuance";
 import { marketplaceRouter } from "./routes/marketplace";
 import { redemptionRouter } from "./routes/redemption";
+import { permitRouter } from "./routes/permit";
+import { userRouter } from "./routes/user";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import { initDataSource } from "./db/data-source";
@@ -62,11 +64,19 @@ const swaggerSpec = swaggerJSDoc({
     tags: [
       { name: "1️⃣ 인증", description: "로그인 및 계정 관리" },
       { name: "1️⃣ 지갑", description: "Sui 지갑 생성 및 관리" },
+      { name: "1️⃣ 사용자 관리", description: "사용자 프로필 및 계급 관리" },
       {
         name: "2️⃣ 쿠폰",
         description: "암호화된 오브젝트(cryptoObject) 생성 및 거래",
       },
-      { name: "포인트", description: "포인트 시스템 관리" },
+      { name: "3️⃣ 포인트", description: "포인트 시스템 관리" },
+      { name: "4️⃣ 발행 관리", description: "발행 권한 도장 및 오브젝트 발행" },
+      {
+        name: "5️⃣ 거래 마켓플레이스",
+        description: "오브젝트 거래 및 마켓플레이스",
+      },
+      { name: "6️⃣ 쿠폰 사용", description: "일회용 토큰 생성 및 쿠폰 사용" },
+      { name: "7️⃣ Permit 관리", description: "Permit 상장/구매 및 Cap 발급" },
       { name: "Move", description: "Sui Move 스마트 컨트랙트 호출" },
       { name: "데이터베이스", description: "DB 상태 확인" },
     ],
@@ -94,6 +104,8 @@ app.use("/db", dbRouter);
 app.use("/issuance", issuanceRouter);
 app.use("/marketplace", marketplaceRouter);
 app.use("/redemption", redemptionRouter);
+app.use("/permit", permitRouter);
+app.use("/user", userRouter);
 
 const port = Number(process.env.PORT || 3000);
 

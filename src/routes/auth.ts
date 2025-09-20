@@ -422,6 +422,7 @@ authRouter.get("/callback", async (req, res) => {
         address: user.address,
         iss: "coutainer",
         email: jwtPayload.email || user.nickname,
+        role: user.role,
         zkLogin: true,
       },
       env.sessionSecret,
@@ -593,6 +594,7 @@ authRouter.post("/zklogin", async (req, res) => {
         address: user.address,
         iss: "coutainer",
         email: claims.email,
+        role: user.role,
         zkLogin: true,
       },
       env.sessionSecret,
@@ -766,6 +768,7 @@ authRouter.post("/login", async (req, res) => {
         address: user.address,
         iss: "coutainer",
         email: claims.email,
+        role: user.role,
       },
       env.sessionSecret,
       { expiresIn: "7d" }

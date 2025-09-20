@@ -23,7 +23,7 @@ export class CouponObject {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: "varchar", length: 100, unique: true })
+  @Column({ name: "coupon_id", type: "varchar", length: 100, unique: true })
   couponId!: string; // 쿠폰 고유 ID
 
   // 소유자 정보
@@ -59,50 +59,45 @@ export class CouponObject {
   issuerId!: number;
 
   // 상품 정보
-  @Column({ type: "varchar", length: 200 })
+  @Column({ name: "title", type: "varchar", length: 200 })
   title!: string; // 상품 제목
 
-  @Column({ type: "text", nullable: true })
+  @Column({ name: "description", type: "text", nullable: true })
   description!: string | null; // 상품 설명
 
-  @Column({ type: "varchar", length: 500, nullable: true })
+  @Column({ name: "image_url", type: "varchar", length: 500, nullable: true })
   imageUrl!: string | null; // 상품 이미지 URL
 
   // 가격 및 가치 정보
-  @Column({ type: "bigint" })
+  @Column({ name: "face_value", type: "bigint" })
   faceValue!: string; // 발행 당시 가격 (포인트)
 
-  @Column({ type: "bigint" })
+  @Column({ name: "remaining", type: "bigint" })
   remaining!: string; // 남은 가치
 
-  @Column({ type: "int", default: 0 })
+  @Column({ name: "trade_count", type: "int", default: 0 })
   tradeCount!: number; // 거래 횟수
 
   // 상태 및 만료 정보
   @Column({
+    name: "state",
     type: "enum",
     enum: CouponObjectState,
     default: CouponObjectState.CREATED,
   })
   state!: CouponObjectState;
 
-  @Column({ type: "datetime" })
-  expiration!: Date; // 사용 만료일
+  @Column({ name: "expires_at", type: "datetime" })
+  expiresAt!: Date; // 사용 만료일
 
-  @Column({ type: "datetime" })
+  @Column({ name: "issued_at", type: "datetime" })
   issuedAt!: Date; // 발행일
 
   // 일회용 토큰 정보 (사용 시)
   @Index()
-  @Column({ type: "varchar", length: 100, nullable: true })
+  @Column({ name: "jti", type: "varchar", length: 100, nullable: true })
   jti!: string | null; // 일회용 토큰 ID
 
-  @Column({ type: "datetime", nullable: true })
+  @Column({ name: "used_at", type: "datetime", nullable: true })
   usedAt!: Date | null; // 사용일
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
 }

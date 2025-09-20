@@ -29,10 +29,4 @@ export class EscrowAccount {
 
   @Column({ type: "bigint", default: "0" })
   totalReleased!: string; // 총 지급 금액
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
 }

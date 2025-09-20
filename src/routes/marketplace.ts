@@ -108,7 +108,7 @@ marketplaceRouter.post(
       }
 
       // 만료일 확인
-      if (new Date() > couponObject.expiration) {
+      if (new Date() > couponObject.expiresAt) {
         return res.status(400).json({ error: "Object has expired" });
       }
 
@@ -117,7 +117,6 @@ marketplaceRouter.post(
         { id: body.objectId },
         {
           state: CouponObjectState.TRANSFERRED,
-          updatedAt: new Date(),
         }
       );
 
@@ -180,7 +179,7 @@ marketplaceRouter.post(
  *                     type: string
  *                   tradeCount:
  *                     type: number
- *                   expiration:
+ *                   expiresAt:
  *                     type: string
  *                   owner:
  *                     type: object
@@ -198,7 +197,7 @@ marketplaceRouter.get("/objects-for-sale", async (req, res) => {
     const objects = await objectRepo.find({
       where: { state: CouponObjectState.TRANSFERRED },
       relations: ["owner", "supplier", "issuer"],
-      order: { createdAt: "DESC" },
+      order: { id: "DESC" },
     });
 
     const objectsForSale = objects.map((obj) => ({
@@ -210,7 +209,7 @@ marketplaceRouter.get("/objects-for-sale", async (req, res) => {
       faceValue: obj.faceValue,
       remaining: obj.remaining,
       tradeCount: obj.tradeCount,
-      expiration: obj.expiration,
+      expiresAt: obj.expiresAt,
       owner: {
         id: obj.owner.id,
         address: obj.owner.address,
@@ -341,7 +340,7 @@ marketplaceRouter.post(
       }
 
       // 만료일 확인
-      if (new Date() > couponObject.expiration) {
+      if (new Date() > couponObject.expiresAt) {
         return res.status(400).json({ error: "Object has expired" });
       }
 
@@ -378,7 +377,6 @@ marketplaceRouter.post(
             balance: (
               BigInt(buyerPoints.balance) - BigInt(couponObject.faceValue)
             ).toString(),
-            updatedAt: new Date(),
           }
         );
 
@@ -402,14 +400,12 @@ marketplaceRouter.post(
               balance: (
                 BigInt(sellerPoints.balance) + BigInt(couponObject.faceValue)
               ).toString(),
-              updatedAt: new Date(),
             }
           );
         } else {
           await queryRunner.manager.save(Point, {
             userAddress: seller.address,
             balance: couponObject.faceValue,
-            updatedAt: new Date(),
           });
         }
 
@@ -437,14 +433,12 @@ marketplaceRouter.post(
               balance: (
                 BigInt(supplierPoints.balance) + supplierFee
               ).toString(),
-              updatedAt: new Date(),
             }
           );
         } else {
           await queryRunner.manager.save(Point, {
             userAddress: supplier.address,
             balance: supplierFee.toString(),
-            updatedAt: new Date(),
           });
         }
 
@@ -464,7 +458,6 @@ marketplaceRouter.post(
               totalReleased: (
                 BigInt(escrowAccount.totalReleased) + supplierFee
               ).toString(),
-              updatedAt: new Date(),
             }
           );
         }
@@ -478,7 +471,6 @@ marketplaceRouter.post(
             remaining: remainingAfterFee.toString(),
             tradeCount: couponObject.tradeCount + 1,
             state: CouponObjectState.CREATED, // 거래 완료 후 다시 CREATED 상태
-            updatedAt: new Date(),
           }
         );
 

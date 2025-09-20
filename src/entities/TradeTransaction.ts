@@ -48,9 +48,6 @@ export class TradeTransaction {
   @Column({ type: "bigint" })
   remainingAfterTrade!: string; // 거래 후 remaining
 
-  @CreateDateColumn()
-  createdAt!: Date;
-
   @Index()
   @Column({ type: "datetime" })
   processedAt!: Date; // 처리 시간

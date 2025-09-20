@@ -24,10 +24,4 @@ export class Point {
 
   @Column({ type: "bigint", default: "0" })
   totalSpent!: string; // 총 사용 포인트
-
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
 }

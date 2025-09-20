@@ -9,6 +9,8 @@ import { IssuanceStamp } from "../entities/IssuanceStamp";
 import { CouponObject } from "../entities/CouponObject";
 import { EscrowAccount } from "../entities/EscrowAccount";
 import { TradeTransaction } from "../entities/TradeTransaction";
+import { SupplierPermit } from "../entities/SupplierPermit";
+import { SupplierCap } from "../entities/SupplierCap";
 
 // 환경변수 로드
 dotenv.config();
@@ -35,6 +37,8 @@ export const AppDataSource = new DataSource({
     CouponObject,
     EscrowAccount,
     TradeTransaction,
+    SupplierPermit,
+    SupplierCap,
   ],
   migrations: [__dirname + "/migrations/*.{ts,js}"],
   migrationsTableName: "migrations",

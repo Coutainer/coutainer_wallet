@@ -350,7 +350,6 @@ issuanceRouter.post(
             balance: (
               BigInt(issuerPoints.balance) - BigInt(stamp.faceValue)
             ).toString(),
-            updatedAt: new Date(),
           }
         );
 
@@ -374,7 +373,6 @@ issuanceRouter.post(
             totalDeposited: (
               BigInt(escrowAccount.totalDeposited) + BigInt(stamp.faceValue)
             ).toString(),
-            updatedAt: new Date(),
           }
         );
 
@@ -401,7 +399,6 @@ issuanceRouter.post(
               balance: (
                 BigInt(supplierPoints.balance) + supplierFee
               ).toString(),
-              updatedAt: new Date(),
             }
           );
         } else {
@@ -433,7 +430,7 @@ issuanceRouter.post(
           remaining: remainingAfterFee.toString(),
           tradeCount: 0,
           state: CouponObjectState.CREATED,
-          expiration: stamp.expiresAt,
+          expiresAt: stamp.expiresAt,
           issuedAt: new Date(),
         });
 
@@ -448,7 +445,6 @@ issuanceRouter.post(
             remainingValue: (
               BigInt(stamp.remainingValue) - BigInt(stamp.faceValue)
             ).toString(),
-            updatedAt: new Date(),
           }
         );
 
@@ -488,7 +484,7 @@ issuanceRouter.post(
             faceValue: couponObject.faceValue,
             remaining: couponObject.remaining,
             state: couponObject.state,
-            expiration: couponObject.expiration,
+            expiresAt: couponObject.expiresAt,
             product: {
               title: couponObject.title,
               description: couponObject.description,

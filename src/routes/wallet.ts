@@ -58,7 +58,7 @@ walletRouter.get(
       const couponRepo = AppDataSource.getRepository(Coupon);
       const cryptoObjects = await couponRepo.find({
         where: { ownerAddress: req.userAddress },
-        order: { createdAt: "DESC" },
+        order: { id: "DESC" },
       });
 
       res.json(cryptoObjects);

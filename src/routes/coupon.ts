@@ -471,7 +471,7 @@ couponRouter.get("/crypto-objects-for-sale", async (req, res) => {
 
     const sales = await saleRepo.find({
       where: { active: true },
-      order: { createdAt: "DESC" },
+      order: { id: "DESC" },
     });
 
     // Join with coupon details
