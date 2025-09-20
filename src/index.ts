@@ -118,8 +118,8 @@ async function startServer() {
       console.log(`🚀 Server listening on http://localhost:${port}`);
       console.log(`📚 API docs available at http://localhost:${port}/docs`);
 
-      // Sui 정기 동기화 시작 (5분마다)
-      suiScheduler.start(5);
+      // Sui 정기 동기화 시작 (10초마다)
+      suiScheduler.start(10);
       console.log("🔄 Sui 정기 동기화 스케줄러 시작됨");
     });
   } catch (error) {
