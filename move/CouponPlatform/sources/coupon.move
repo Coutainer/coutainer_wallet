@@ -1,15 +1,14 @@
 module coupon_platform::coupon {
-    use sui::object::{Self, UID};
+    use sui::object::{UID};
     use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
-    use sui::clock::{Self, Clock};
+    use sui::tx_context::TxContext;
+    use sui::clock::Clock;
     use sui::event;
-    use sui::table::{Self, Table};
-    use sui::vec_set::{Self, VecSet};
+    use sui::vec_set::VecSet;
     use sui::sui::SUI;
-    use sui::coin::{Self, Coin};
-    use sui::balance::{Self, Balance};
-    use sui::url::{Self, Url};
+    use sui::coin::Coin;
+    use sui::balance::Balance;
+    use std::string::String;
 
     // === Errors ===
     const ENotAuthorized: u64 = 0;
@@ -92,12 +91,12 @@ module coupon_platform::coupon {
     // === Functions ===
 
     /// 플랫폼 초기화
-    public fun init(ctx: &mut TxContext) {
+    fun init(ctx: &mut TxContext) {
         let config = PlatformConfig {
-            id: object::new(ctx),
+            id: sui::object::new(ctx),
             trading_fee_rate: 100, // 1%
-            treasury: balance::zero<SUI>(),
-            authorized_providers: vec_set::empty(),
+            treasury: sui::balance::zero<SUI>(),
+            authorized_providers: sui::vec_set::empty(),
         };
         
         transfer::share_object(config);
@@ -110,7 +109,7 @@ module coupon_platform::coupon {
         _ctx: &TxContext
     ) {
         // 실제로는 권한 체크가 필요
-        vec_set::insert(&mut config.authorized_providers, provider);
+        sui::vec_set::insert(&mut config.authorized_providers, provider);
     }
 
     /// 쿠폰 발행 (공급자만)
@@ -123,18 +122,20 @@ module coupon_platform::coupon {
         encrypted_data: String,
         clock: &Clock,
         ctx: &mut TxContext
-    ): CouponObject {
-        assert!(vec_set::contains(&config.authorized_providers, &provider), ENotAuthorized);
+    ) {
+        assert!(sui::vec_set::contains(&config.authorized_providers, &provider), ENotAuthorized);
         assert!(value > 0, EInvalidAmount);
 
-        let current_time = clock::timestamp_ms(clock);
+        let current_time = sui::clock::timestamp_ms(clock);
         let expiry_time = current_time + (expiry_days * 24 * 60 * 60 * 1000); // days to ms
 
+        let coupon_id = current_time; // 임시로 timestamp를 ID로 사용
+
         let coupon = CouponObject {
-            id: object::new(ctx),
-            issuer: tx_context::sender(ctx),
+            id: sui::object::new(ctx),
+            issuer: sui::tx_context::sender(ctx),
             provider,
-            coupon_id: tx_context::id(ctx),
+            coupon_id,
             coupon_type,
             value,
             expiry_time,
@@ -143,13 +144,13 @@ module coupon_platform::coupon {
         };
 
         event::emit(CouponIssued {
-            issuer: tx_context::sender(ctx),
+            issuer: sui::tx_context::sender(ctx),
             provider,
-            coupon_id: tx_context::id(ctx),
+            coupon_id,
             value,
         });
 
-        coupon
+        transfer::public_transfer(coupon, sui::tx_context::sender(ctx));
     }
 
     /// 쿠폰 판매 등록
@@ -157,17 +158,19 @@ module coupon_platform::coupon {
         coupon: CouponObject,
         price: u64,
         ctx: &mut TxContext
-    ): CouponSale {
+    ): (CouponSale, CouponObject) {
         assert!(!coupon.used, ECouponNotForSale);
         assert!(price > 0, EInvalidAmount);
 
-        CouponSale {
-            id: object::new(ctx),
+        let sale = CouponSale {
+            id: sui::object::new(ctx),
             coupon_id: coupon.coupon_id,
-            seller: tx_context::sender(ctx),
+            seller: sui::tx_context::sender(ctx),
             price,
             active: true,
-        }
+        };
+
+        (sale, coupon)
     }
 
     /// 쿠폰 구매
@@ -175,11 +178,11 @@ module coupon_platform::coupon {
         sale: &mut CouponSale,
         coupon: CouponObject,
         config: &mut PlatformConfig,
-        payment: Coin<SUI>,
+        mut payment: Coin<SUI>,
         ctx: &mut TxContext
-    ): CouponObject {
+    ): (CouponObject, Coin<SUI>) {
         assert!(sale.active, ECouponNotForSale);
-        assert!(coin::value(&payment) >= sale.price, EInsufficientFunds);
+        assert!(sui::coin::value(&payment) >= sale.price, EInsufficientFunds);
         assert!(coupon.coupon_id == sale.coupon_id, EInvalidCoupon);
 
         // 수수료 계산
@@ -187,11 +190,11 @@ module coupon_platform::coupon {
         let seller_amount = sale.price - fee;
 
         // 수수료를 트레저리에 추가
-        let fee_coin = coin::split(&mut payment, fee, ctx);
-        balance::join(&mut config.treasury, coin::into_balance(fee_coin));
+        let fee_coin = sui::coin::split(&mut payment, fee, ctx);
+        sui::balance::join(&mut config.treasury, sui::coin::into_balance(fee_coin));
 
         // 판매자에게 지불
-        let seller_coin = coin::split(&mut payment, seller_amount, ctx);
+        let seller_coin = sui::coin::split(&mut payment, seller_amount, ctx);
         transfer::public_transfer(seller_coin, sale.seller);
 
         // 판매 완료 처리
@@ -199,12 +202,12 @@ module coupon_platform::coupon {
 
         event::emit(CouponSold {
             seller: sale.seller,
-            buyer: tx_context::sender(ctx),
+            buyer: sui::tx_context::sender(ctx),
             coupon_id: coupon.coupon_id,
             price: sale.price,
         });
 
-        coupon
+        (coupon, payment)
     }
 
     /// 쿠폰 사용 (공급자만)
@@ -214,13 +217,13 @@ module coupon_platform::coupon {
         ctx: &mut TxContext
     ) {
         assert!(!coupon.used, ECouponNotForSale);
-        assert!(clock::timestamp_ms(clock) <= coupon.expiry_time, ECouponExpired);
-        assert!(coupon.provider == tx_context::sender(ctx), ENotAuthorized);
+        assert!(sui::clock::timestamp_ms(clock) <= coupon.expiry_time, ECouponExpired);
+        assert!(coupon.provider == sui::tx_context::sender(ctx), ENotAuthorized);
 
         coupon.used = true;
 
         event::emit(CouponUsed {
-            user: tx_context::sender(ctx),
+            user: sui::tx_context::sender(ctx),
             coupon_id: coupon.coupon_id,
             provider: coupon.provider,
         });
@@ -246,9 +249,10 @@ module coupon_platform::coupon {
         clock: &Clock,
         ctx: &mut TxContext
     ) {
-        assert!(coupon.issuer == tx_context::sender(ctx), ENotAuthorized);
-        assert!(clock::timestamp_ms(clock) > coupon.expiry_time, ECouponExpired);
+        assert!(coupon.issuer == sui::tx_context::sender(ctx), ENotAuthorized);
+        assert!(sui::clock::timestamp_ms(clock) > coupon.expiry_time, ECouponExpired);
         
-        object::delete(coupon);
+        let CouponObject { id, issuer: _, provider: _, coupon_id: _, coupon_type: _, value: _, expiry_time: _, used: _, encrypted_data: _ } = coupon;
+        sui::object::delete(id);
     }
 }

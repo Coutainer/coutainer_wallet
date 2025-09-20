@@ -11,7 +11,6 @@ import {
 export const pointRouter = Router();
 
 const chargePointsSchema = z.object({
-  targetAddress: z.string().optional(),
   amount: z.string(),
   reason: z.string().optional(),
 });
@@ -96,7 +95,7 @@ pointRouter.get(
  *     tags:
  *       - 포인트
  *     summary: 포인트 충전
- *     description: 사용자가 포인트를 충전합니다 (targetAddress가 없으면 현재 사용자에게 충전)
+ *     description: 사용자가 포인트를 충전합니다
  *     parameters:
  *       - in: header
  *         name: auth
@@ -114,10 +113,6 @@ pointRouter.get(
  *             required:
  *               - amount
  *             properties:
- *               targetAddress:
- *                 type: string
- *                 description: 포인트를 받을 사용자 주소 (선택사항, 없으면 현재 사용자에게 충전)
- *                 example: "0x1234567890abcdef..."
  *               amount:
  *                 type: string
  *                 description: 충전할 포인트 양
@@ -136,8 +131,6 @@ pointRouter.get(
  *               properties:
  *                 message:
  *                   type: string
- *                 targetAddress:
- *                   type: string
  *                 amount:
  *                   type: string
  *                 newBalance:
@@ -155,40 +148,39 @@ pointRouter.post(
       const body = chargePointsSchema.parse(req.body);
       const pointRepo = AppDataSource.getRepository(Point);
 
-      // Use targetAddress if provided, otherwise use current user's address
-      const targetAddress = body.targetAddress || req.userAddress!;
-      console.log("Charging points to:", targetAddress, "Amount:", body.amount);
+      // Use current user's address
+      const userAddress = req.userAddress!;
+      console.log("Charging points to:", userAddress, "Amount:", body.amount);
 
-      // Get or create target user's point account
-      let targetPoint = await pointRepo.findOne({
-        where: { userAddress: targetAddress },
+      // Get or create user's point account
+      let userPoint = await pointRepo.findOne({
+        where: { userAddress: userAddress },
       });
 
-      if (!targetPoint) {
-        targetPoint = pointRepo.create({
-          userAddress: targetAddress,
+      if (!userPoint) {
+        userPoint = pointRepo.create({
+          userAddress: userAddress,
           balance: "0",
           totalEarned: "0",
           totalSpent: "0",
         });
       }
 
-      // Add points to target user
-      const newBalance = BigInt(targetPoint.balance) + BigInt(body.amount);
+      // Add points to user
+      const newBalance = BigInt(userPoint.balance) + BigInt(body.amount);
       const newTotalEarned =
-        BigInt(targetPoint.totalEarned) + BigInt(body.amount);
+        BigInt(userPoint.totalEarned) + BigInt(body.amount);
 
-      targetPoint.balance = newBalance.toString();
-      targetPoint.totalEarned = newTotalEarned.toString();
+      userPoint.balance = newBalance.toString();
+      userPoint.totalEarned = newTotalEarned.toString();
 
-      await pointRepo.save(targetPoint);
+      await pointRepo.save(userPoint);
 
       res.json({
         message: "Points charged successfully",
-        targetAddress: targetAddress,
         amount: body.amount,
         reason: body.reason,
-        newBalance: targetPoint.balance,
+        newBalance: userPoint.balance,
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message });

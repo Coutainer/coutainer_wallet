@@ -3,14 +3,18 @@ import dotenv from "dotenv";
 import { json } from "express";
 import cors from "cors";
 import { walletRouter } from "./routes/wallet";
-import { moveRouter } from "./routes/move";
-import { dbRouter } from "./routes/db";
-import { couponRouter } from "./routes/coupon";
 import { pointRouter } from "./routes/point";
 import { authRouter } from "./routes/auth";
+import { marketplaceRouter } from "./routes/marketplace";
+import { redemptionRouter } from "./routes/redemption";
+import { permitRouter } from "./routes/permit";
+import { userRouter } from "./routes/user";
+import debugRouter from "./routes/debug";
+import walletUpgradeRouter from "./routes/wallet-upgrade";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import { initDataSource } from "./db/data-source";
+import { suiScheduler } from "./sui/scheduler";
 
 dotenv.config();
 
@@ -59,13 +63,22 @@ const swaggerSpec = swaggerJSDoc({
     tags: [
       { name: "1️⃣ 인증", description: "로그인 및 계정 관리" },
       { name: "1️⃣ 지갑", description: "Sui 지갑 생성 및 관리" },
+      { name: "1️⃣ 사용자 관리", description: "사용자 프로필 및 계급 관리" },
       {
         name: "2️⃣ 쿠폰",
         description: "암호화된 오브젝트(cryptoObject) 생성 및 거래",
       },
-      { name: "포인트", description: "포인트 시스템 관리" },
-      { name: "Move", description: "Sui Move 스마트 컨트랙트 호출" },
-      { name: "데이터베이스", description: "DB 상태 확인" },
+      { name: "3️⃣ 포인트", description: "포인트 시스템 관리" },
+      {
+        name: "5️⃣ 거래 마켓플레이스",
+        description: "오브젝트 거래 및 마켓플레이스",
+      },
+      { name: "6️⃣ 쿠폰 사용", description: "일회용 토큰 생성 및 쿠폰 사용" },
+      { name: "7️⃣ Permit 관리", description: "Permit 상장/구매 및 Cap 발급" },
+      {
+        name: "Debug (개발용)",
+        description: "개발/테스트 환경 전용 디버깅 API",
+      },
     ],
     servers: [
       {
@@ -84,10 +97,13 @@ app.get("/health", (_req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/wallet", walletRouter);
-app.use("/coupon", couponRouter);
 app.use("/point", pointRouter);
-app.use("/move", moveRouter);
-app.use("/db", dbRouter);
+app.use("/marketplace", marketplaceRouter);
+app.use("/redemption", redemptionRouter);
+app.use("/permit", permitRouter);
+app.use("/user", userRouter);
+app.use("/debug", debugRouter);
+app.use("/wallet-upgrade", walletUpgradeRouter);
 
 const port = Number(process.env.PORT || 3000);
 
@@ -101,6 +117,10 @@ async function startServer() {
     app.listen(port, () => {
       console.log(`🚀 Server listening on http://localhost:${port}`);
       console.log(`📚 API docs available at http://localhost:${port}/docs`);
+
+      // Sui 정기 동기화 시작 (5분마다)
+      suiScheduler.start(5);
+      console.log("🔄 Sui 정기 동기화 스케줄러 시작됨");
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error);

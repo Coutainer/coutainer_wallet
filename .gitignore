@@ -1,3 +1,8 @@
 node_modules
 .env
 dist
+
+# Move build artifacts
+move/**/build/
+move/**/.move/
+move/**/Move.lock

@@ -11,4 +11,3 @@ export function createSuiClient(): SuiClient {
     : network; // allow custom RPC URL
   return new SuiClient({ url });
 }
-
