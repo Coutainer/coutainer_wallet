@@ -1306,12 +1306,12 @@ permitRouter.get(
       });
 
       res.json({
-        내가올린: createdPermits.map((permit) => formatPermit(permit, "올린")),
-        내가산: purchasedPermits.map((permit) => formatPermit(permit, "산")),
-        요약: {
-          총올린수: createdPermits.length,
-          총산수: purchasedPermits.length,
-          전체: createdPermits.length + purchasedPermits.length,
+        supplies: createdPermits,
+        purchases: purchasedPermits,
+        summary: {
+          totalSupplies: createdPermits.length,
+          totalPurchases: purchasedPermits.length,
+          total: createdPermits.length + purchasedPermits.length,
         },
       });
     } catch (err: any) {
