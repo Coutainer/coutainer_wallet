@@ -26,3 +26,4 @@ export class ConvertToWalletBased1758331000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE \`users\` ALTER COLUMN \`has_wallet\` SET DEFAULT false`);
     }
 }
+

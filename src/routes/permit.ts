@@ -772,9 +772,12 @@ permitRouter.post(
         const couponObject = objectRepo.create({
           objectId,
           ownerId: recipient.id,
+          ownerAddress: recipient.address,
           stampId: null, // Permit 기반 발행에서는 IssuanceStamp를 사용하지 않음
           supplierId: supplier.id,
+          supplierAddress: supplier.address,
           issuerId: issuer.id,
+          issuerAddress: issuer.address,
           title: cap.title,
           description: cap.description,
           imageUrl: cap.imageUrl,
@@ -1091,8 +1094,40 @@ permitRouter.get(
         return res.status(400).json({ error: "User not found" });
       }
 
-      let capsList: any[] = [];
-      let couponObjectsList: any[] = [];
+      let capsList: Array<{
+        id: number;
+        scope: string;
+        remaining: string;
+        originalLimit: string;
+        faceValue: string;
+        title: string;
+        description: string | null;
+        imageUrl: string | null;
+        expiry: Date;
+        status: string;
+        frozen: boolean;
+        issuedCount: number;
+        totalValueIssued: string;
+        supplierAddress: string;
+        permit: { id: number; price: string } | null;
+      }> = [];
+      
+      let couponObjectsList: Array<{
+        id: number;
+        objectId: string | null;
+        title: string;
+        description: string | null;
+        imageUrl: string | null;
+        faceValue: string;
+        remaining: string;
+        tradeCount: number;
+        state: string;
+        expiresAt: Date;
+        issuedAt: Date;
+        usedAt: Date | null;
+        supplierId: number;
+        issuerId: number;
+      }> = [];
 
       if (req.userRole === "BUSINESS") {
         // Business 계정: 자신이 소유한 Cap 목록 조회

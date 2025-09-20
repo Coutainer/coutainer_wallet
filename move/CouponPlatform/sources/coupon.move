@@ -4,12 +4,11 @@ module coupon_platform::coupon {
     use sui::tx_context::{Self, TxContext};
     use sui::clock::{Self, Clock};
     use sui::event;
-    use sui::table::{Self, Table};
     use sui::vec_set::{Self, VecSet};
     use sui::sui::SUI;
     use sui::coin::{Self, Coin};
     use sui::balance::{Self, Balance};
-    use sui::url::{Self, Url};
+    use std::string::{Self, String};
 
     // === Errors ===
     const ENotAuthorized: u64 = 0;
@@ -22,7 +21,7 @@ module coupon_platform::coupon {
     // === Structs ===
     
     /// 쿠폰 오브젝트 - 암호화된 상태로 거래됨
-    public struct CouponObject has key, store {
+    struct CouponObject has key, store {
         id: UID,
         // 발행자 주소
         issuer: address,
@@ -43,7 +42,7 @@ module coupon_platform::coupon {
     }
 
     /// 쿠폰 판매 정보
-    public struct CouponSale has key, store {
+    struct CouponSale has key, store {
         id: UID,
         coupon_id: u64,
         seller: address,
@@ -52,7 +51,7 @@ module coupon_platform::coupon {
     }
 
     /// 쿠폰 구매 요청
-    public struct CouponBuyRequest has key, store {
+    struct CouponBuyRequest has key, store {
         id: UID,
         buyer: address,
         max_price: u64,
@@ -61,7 +60,7 @@ module coupon_platform::coupon {
     }
 
     /// 플랫폼 설정
-    public struct PlatformConfig has key {
+    struct PlatformConfig has key {
         id: UID,
         trading_fee_rate: u64, // 수수료율 (예: 100 = 1%)
         treasury: Balance<SUI>,
@@ -69,21 +68,21 @@ module coupon_platform::coupon {
     }
 
     // === Events ===
-    public struct CouponIssued has copy, drop {
+    struct CouponIssued has copy, drop {
         issuer: address,
         provider: address,
         coupon_id: u64,
         value: u64,
     }
 
-    public struct CouponSold has copy, drop {
+    struct CouponSold has copy, drop {
         seller: address,
         buyer: address,
         coupon_id: u64,
         price: u64,
     }
 
-    public struct CouponUsed has copy, drop {
+    struct CouponUsed has copy, drop {
         user: address,
         coupon_id: u64,
         provider: address,
@@ -92,7 +91,7 @@ module coupon_platform::coupon {
     // === Functions ===
 
     /// 플랫폼 초기화
-    public fun init(ctx: &mut TxContext) {
+    fun init(ctx: &mut TxContext) {
         let config = PlatformConfig {
             id: object::new(ctx),
             trading_fee_rate: 100, // 1%
@@ -134,7 +133,7 @@ module coupon_platform::coupon {
             id: object::new(ctx),
             issuer: tx_context::sender(ctx),
             provider,
-            coupon_id: tx_context::id(ctx),
+            coupon_id: object::id(&object::new(ctx)),
             coupon_type,
             value,
             expiry_time,
@@ -145,7 +144,7 @@ module coupon_platform::coupon {
         event::emit(CouponIssued {
             issuer: tx_context::sender(ctx),
             provider,
-            coupon_id: tx_context::id(ctx),
+            coupon_id: object::id(&object::new(ctx)),
             value,
         });
 
@@ -249,6 +248,6 @@ module coupon_platform::coupon {
         assert!(coupon.issuer == tx_context::sender(ctx), ENotAuthorized);
         assert!(clock::timestamp_ms(clock) > coupon.expiry_time, ECouponExpired);
         
-        object::delete(coupon);
+        object::delete(coupon.id);
     }
 }

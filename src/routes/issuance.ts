@@ -320,12 +320,24 @@ issuanceRouter.post(
         return res.status(400).json({ error: "Recipient not found" });
       }
 
-      // 발행자 포인트 잔액 확인
-      const pointRepo = AppDataSource.getRepository(Point);
-      const issuer = await userRepo.findOne({ where: { id: issuerId } });
+      // 발행자 정보 조회
+      const issuer = await userRepo.findOne({
+        where: { id: issuerId },
+      });
       if (!issuer) {
         return res.status(400).json({ error: "Issuer not found" });
       }
+
+      // 공급자 정보 조회
+      const supplier = await userRepo.findOne({
+        where: { id: stamp.supplierId },
+      });
+      if (!supplier) {
+        return res.status(400).json({ error: "Supplier not found" });
+      }
+
+      // 발행자 포인트 잔액 확인
+      const pointRepo = AppDataSource.getRepository(Point);
 
       const issuerPoints = await pointRepo.findOne({
         where: { userAddress: issuer.address },
@@ -419,9 +431,12 @@ issuanceRouter.post(
         const couponObject = objectRepo.create({
           objectId,
           ownerId: body.recipientId,
+          ownerAddress: recipient.address,
           stampId: stamp.id,
           supplierId: stamp.supplierId,
+          supplierAddress: supplier.address,
           issuerId: issuerId,
+          issuerAddress: issuer.address,
           title: stamp.title,
           description: stamp.description,
           imageUrl: stamp.imageUrl,

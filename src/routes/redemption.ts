@@ -18,13 +18,12 @@ export const redemptionRouter = Router();
 
 // 일회용 토큰 생성 스키마
 const generateTokenSchema = z.object({
-  objectId: z.number(),
+  objectId: z.string(),
 });
 
-// 토큰 검증 및 사용 스키마
+// 토큰 검증 및 사용 스키마 (공급자 JWT + UUID 토큰)
 const redeemTokenSchema = z.object({
-  token: z.string(),
-  merchantId: z.number().optional(), // 가맹점 ID (선택사항)
+  oneTimeToken: z.string(), // UUID 형식의 일회용 토큰
 });
 
 /**
@@ -33,8 +32,8 @@ const redeemTokenSchema = z.object({
  *   post:
  *     tags:
  *       - 6️⃣ 쿠폰 사용
- *     summary: 일회용 토큰 생성
- *     description: 오브젝트 보유자가 5분짜리 일회용 토큰을 생성합니다
+ *     summary: 일회용 토큰 생성 (UUID 형식)
+ *     description: 오브젝트 보유자가 5분짜리 UUID 형식의 일회용 토큰을 생성합니다
  *     parameters:
  *       - in: header
  *         name: auth
@@ -53,8 +52,9 @@ const redeemTokenSchema = z.object({
  *               - objectId
  *             properties:
  *               objectId:
- *                 type: number
+ *                 type: string
  *                 description: 사용할 오브젝트 ID
+ *                 example: "COUPON_51AA919D06604133"
  *     responses:
  *       200:
  *         description: 토큰 생성 성공
@@ -65,7 +65,8 @@ const redeemTokenSchema = z.object({
  *               properties:
  *                 token:
  *                   type: string
- *                   description: 일회용 토큰
+ *                   description: UUID 형식의 일회용 토큰
+ *                   example: "550e8400-e29b-41d4-a716-446655440000"
  *                 expiresAt:
  *                   type: string
  *                   format: date-time
@@ -97,9 +98,42 @@ redemptionRouter.post(
 
       // 오브젝트 소유권 확인
       const objectRepo = AppDataSource.getRepository(CouponObject);
+
+      // 먼저 오브젝트가 존재하는지 확인
+      const objectExists = await objectRepo.findOne({
+        where: {
+          objectId: body.objectId,
+          ownerId: userId,
+        },
+      });
+
+      if (!objectExists) {
+        return res
+          .status(400)
+          .json({ error: "Object not found or not owned by you" });
+      }
+
+      // 상태별 에러 메시지
+      if (objectExists.state === CouponObjectState.REDEEMED) {
+        return res
+          .status(400)
+          .json({ error: "This coupon has already been used" });
+      }
+
+      if (objectExists.state === CouponObjectState.TRADING) {
+        return res
+          .status(400)
+          .json({ error: "This coupon is currently being traded" });
+      }
+
+      if (objectExists.state === CouponObjectState.EXPIRED) {
+        return res.status(400).json({ error: "This coupon has expired" });
+      }
+
+      // CREATED 상태인 오브젝트만 토큰 생성 가능
       const couponObject = await objectRepo.findOne({
         where: {
-          id: body.objectId,
+          objectId: body.objectId,
           ownerId: userId,
           state: CouponObjectState.CREATED,
         },
@@ -108,7 +142,7 @@ redemptionRouter.post(
       if (!couponObject) {
         return res
           .status(400)
-          .json({ error: "Object not found or not owned by you" });
+          .json({ error: "Object is not available for token generation" });
       }
 
       // 만료일 확인
@@ -116,38 +150,15 @@ redemptionRouter.post(
         return res.status(400).json({ error: "Object has expired" });
       }
 
-      // 이미 사용된 토큰이 있는지 확인
-      if (couponObject.jti) {
-        return res
-          .status(400)
-          .json({ error: "Object already has a pending token" });
-      }
-
-      // JTI 생성 (고유한 일회용 토큰 ID)
-      const jti = uuidv4();
+      // UUID 형식의 일회용 토큰 생성
+      const oneTimeToken = uuidv4();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5분 후 만료
 
-      // 일회용 토큰 생성
-      const token = jwt.sign(
-        {
-          jti,
-          objectId: body.objectId,
-          userId,
-          remaining: couponObject.remaining,
-          exp: Math.floor(expiresAt.getTime() / 1000), // 5분 후 만료
-        },
-        process.env.SESSION_SECRET || "your-secret-key-here",
-        {
-          algorithm: "HS256",
-          issuer: "coutainer-coupon-system",
-        }
-      );
-
-      // 오브젝트에 JTI 저장
+      // 오브젝트에 JTI 저장 (UUID 토큰)
       await objectRepo.update(
-        { id: body.objectId },
+        { objectId: body.objectId },
         {
-          jti,
+          jti: oneTimeToken,
         }
       );
 
@@ -155,13 +166,13 @@ redemptionRouter.post(
         requestObjectId: body.objectId,
         objectId: couponObject.objectId,
         userId,
-        jti,
+        oneTimeToken,
         expiresAt,
         remaining: couponObject.remaining,
       });
 
       res.json({
-        token,
+        token: oneTimeToken,
         expiresAt,
         object: {
           id: couponObject.id,
@@ -183,8 +194,16 @@ redemptionRouter.post(
  *   post:
  *     tags:
  *       - 6️⃣ 쿠폰 사용
- *     summary: 토큰 검증 (가맹점용)
- *     description: 가맹점에서 일회용 토큰을 검증하고 사용합니다
+ *     summary: 토큰 검증 (공급자용)
+ *     description: 공급자가 JWT 헤더와 UUID 형식의 일회용 토큰으로 쿠폰을 검증하고 사용 처리합니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 공급자 JWT 토큰
+ *         example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *     requestBody:
  *       required: true
  *       content:
@@ -192,14 +211,12 @@ redemptionRouter.post(
  *           schema:
  *             type: object
  *             required:
- *               - token
+ *               - oneTimeToken
  *             properties:
- *               token:
+ *               oneTimeToken:
  *                 type: string
- *                 description: 검증할 일회용 토큰
- *               merchantId:
- *                 type: number
- *                 description: 가맹점 ID (선택사항)
+ *                 description: UUID 형식의 일회용 토큰
+ *                 example: "550e8400-e29b-41d4-a716-446655440000"
  *     responses:
  *       200:
  *         description: 토큰 검증 및 사용 성공
@@ -238,45 +255,77 @@ redemptionRouter.post(
  *                         type: string
  *       400:
  *         description: 잘못된 요청
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   examples:
+ *                     - "One-time token not found or invalid"
+ *                     - "This coupon has already been used"
+ *                     - "This coupon is currently being traded"
+ *                     - "This coupon has expired"
+ *                     - "Object has expired"
+ *                     - "Token already used"
+ *       403:
+ *         description: 권한 없음
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "You can only verify your own coupons"
  *       500:
  *         description: 서버 오류
  */
 redemptionRouter.post(
   "/verify-token",
-  requireUserWithRole,
-  requireConsumer,
+  requireUserWithRole, // 공급자 JWT 헤더 확인
   async (req: AuthenticatedRequest, res) => {
     try {
       const body = redeemTokenSchema.parse(req.body);
-      const { token } = body;
+      const { oneTimeToken } = body;
 
-      // 토큰 검증
-      let decoded: any;
-      try {
-        decoded = jwt.verify(
-          token,
-          process.env.SESSION_SECRET || "your-secret-key-here"
-        );
-      } catch (jwtError) {
-        return res.status(400).json({ error: "Invalid or expired token" });
-      }
-
-      const { jti, objectId, userId, remaining } = decoded;
-
-      // 오브젝트 조회
+      // 오브젝트 조회 (UUID 토큰으로만 조회)
       const objectRepo = AppDataSource.getRepository(CouponObject);
       const couponObject = await objectRepo.findOne({
         where: {
-          id: objectId,
-          jti,
-          state: CouponObjectState.CREATED,
+          jti: oneTimeToken,
         },
       });
 
       if (!couponObject) {
         return res
           .status(400)
-          .json({ error: "Object not found or already used" });
+          .json({ error: "One-time token not found or invalid" });
+      }
+
+      // 공급자 권한 확인 (공급자만 자신의 쿠폰을 검증할 수 있음)
+      if (couponObject.supplierAddress !== req.userAddress) {
+        return res
+          .status(403)
+          .json({ error: "You can only verify your own coupons" });
+      }
+
+      // 쿠폰 상태 확인
+      if (couponObject.state === CouponObjectState.REDEEMED) {
+        return res
+          .status(400)
+          .json({ error: "This coupon has already been used" });
+      }
+
+      if (couponObject.state === CouponObjectState.TRADING) {
+        return res
+          .status(400)
+          .json({ error: "This coupon is currently being traded" });
+      }
+
+      if (couponObject.state === CouponObjectState.EXPIRED) {
+        return res.status(400).json({ error: "This coupon has expired" });
       }
 
       // 만료일 확인
@@ -298,47 +347,41 @@ redemptionRouter.post(
         // 1. Escrow에서 공급자에게 remaining 전액 지급
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierAddress: couponObject.supplier.address },
+          where: { supplierAddress: couponObject.supplierAddress },
         });
 
         if (
           escrowAccount &&
-          BigInt(escrowAccount.balance) >= BigInt(remaining)
+          BigInt(escrowAccount.balance) >= BigInt(couponObject.remaining)
         ) {
           // 공급자 포인트 증가
           const pointRepo = queryRunner.manager.getRepository(Point);
-          const userRepo = queryRunner.manager.getRepository(User);
-          const supplier = await userRepo.findOne({
-            where: { id: couponObject.supplierId },
-          });
-          if (!supplier) {
-            throw new Error("Supplier not found");
-          }
 
           const supplierPoints = await pointRepo.findOne({
-            where: { userAddress: supplier.address },
+            where: { userAddress: couponObject.supplierAddress },
           });
 
           if (supplierPoints) {
             await queryRunner.manager.update(
               Point,
-              { userAddress: supplier.address },
+              { userAddress: couponObject.supplierAddress },
               {
                 balance: (
-                  BigInt(supplierPoints.balance) + BigInt(remaining)
+                  BigInt(supplierPoints.balance) +
+                  BigInt(couponObject.remaining)
                 ).toString(),
               }
             );
           } else {
             await queryRunner.manager.save(Point, {
-              userAddress: supplier.address,
-              balance: remaining,
+              userAddress: couponObject.supplierAddress,
+              balance: couponObject.remaining,
             });
           }
 
           // Escrow 잔액 차감
           const newEscrowBalance =
-            BigInt(escrowAccount.balance) - BigInt(remaining);
+            BigInt(escrowAccount.balance) - BigInt(couponObject.remaining);
           await queryRunner.manager.update(
             EscrowAccount,
             { id: escrowAccount.id },
@@ -351,7 +394,7 @@ redemptionRouter.post(
         // 2. 오브젝트 상태를 REDEEMED로 변경
         await queryRunner.manager.update(
           CouponObject,
-          { id: objectId },
+          { objectId: couponObject.objectId },
           {
             state: CouponObjectState.REDEEMED,
             remaining: "0",
@@ -366,19 +409,16 @@ redemptionRouter.post(
           {
             from: `escrow_${escrowAccount?.id}`,
             to: `supplier_${couponObject.supplierId}`,
-            amount: remaining,
+            amount: couponObject.remaining,
             description: "쿠폰 사용 완료 - remaining 전액 지급",
           },
         ];
 
         console.log("✅ 쿠폰 사용 완료:", {
-          requestObjectId: objectId,
           objectId: couponObject.objectId,
-          jti,
-          userId,
-          remaining,
+          jti: couponObject.jti,
+          remaining: couponObject.remaining,
           supplier: couponObject.supplierId,
-          merchantId: body.merchantId,
         });
 
         res.json({
@@ -492,7 +532,7 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
         // 2. Escrow에서 환급 금액 차감
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierAddress: obj.supplier.address },
+          where: { supplierAddress: obj.supplierAddress },
         });
 
         if (escrowAccount) {

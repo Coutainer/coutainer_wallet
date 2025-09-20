@@ -34,10 +34,13 @@ export class CouponObject {
   @Column({ name: "owner_id" })
   ownerId!: number;
 
+  @Column({ name: "owner_address", type: "varchar", length: 100 })
+  ownerAddress!: string; // 소유자 지갑 주소
+
   // 발행 권한 도장
-  @ManyToOne(() => IssuanceStamp)
+  @ManyToOne(() => IssuanceStamp, { nullable: true })
   @JoinColumn({ name: "stamp_id" })
-  stamp!: IssuanceStamp;
+  stamp!: IssuanceStamp | null;
 
   @Column({ name: "stamp_id", nullable: true })
   stampId!: number | null;
@@ -50,6 +53,9 @@ export class CouponObject {
   @Column({ name: "supplier_id" })
   supplierId!: number;
 
+  @Column({ name: "supplier_address", type: "varchar", length: 100 })
+  supplierAddress!: string; // 공급자 지갑 주소
+
   // 발행자 정보
   @ManyToOne(() => User)
   @JoinColumn({ name: "issuer_id" })
@@ -57,6 +63,9 @@ export class CouponObject {
 
   @Column({ name: "issuer_id" })
   issuerId!: number;
+
+  @Column({ name: "issuer_address", type: "varchar", length: 100 })
+  issuerAddress!: string; // 발행자 지갑 주소
 
   // 상품 정보
   @Column({ name: "title", type: "varchar", length: 200 })

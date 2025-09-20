@@ -15,7 +15,7 @@ export class TradeTransaction {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: "varchar", length: 100, unique: true })
+  @Column({ name: "idempotency_key", type: "varchar", unique: true })
   idempotencyKey!: string; // 중복 방지 키
 
   @ManyToOne(() => CouponObject)
@@ -23,7 +23,7 @@ export class TradeTransaction {
   couponObject!: CouponObject;
 
   @Column({ name: "object_id" })
-  objectId!: number;
+  objectId!: string;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: "seller_id" })
@@ -39,16 +39,16 @@ export class TradeTransaction {
   @Column({ name: "buyer_id" })
   buyerId!: number;
 
-  @Column({ type: "bigint" })
+  @Column({ name: "price", type: "varchar" })
   price!: string; // 거래 가격
 
-  @Column({ type: "bigint" })
+  @Column({ name: "supplier_fee", type: "varchar" })
   supplierFee!: string; // 공급자 수수료 (3%)
 
-  @Column({ type: "bigint" })
+  @Column({ name: "remaining_after_trade", type: "varchar" })
   remainingAfterTrade!: string; // 거래 후 remaining
 
   @Index()
-  @Column({ type: "datetime" })
+  @Column({ name: "processed_at", type: "datetime" })
   processedAt!: Date; // 처리 시간
 }

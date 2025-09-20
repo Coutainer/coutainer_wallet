@@ -13,13 +13,13 @@ export const marketplaceRouter = Router();
 
 // 판매 등록 스키마
 const listForSaleSchema = z.object({
-  objectId: z.number(),
+  objectId: z.string(),
   price: z.string().min(1), // 포인트 단위
 });
 
 // 구매 스키마
 const buyObjectSchema = z.object({
-  objectId: z.number(),
+  objectId: z.string(),
   idempotencyKey: z.string().optional(),
 });
 
@@ -50,7 +50,7 @@ const buyObjectSchema = z.object({
  *               - price
  *             properties:
  *               objectId:
- *                 type: number
+ *                 type: string
  *                 description: 오브젝트 ID
  *               price:
  *                 type: string
@@ -95,7 +95,7 @@ marketplaceRouter.post(
       const objectRepo = AppDataSource.getRepository(CouponObject);
       const couponObject = await objectRepo.findOne({
         where: {
-          id: body.objectId,
+          objectId: body.objectId,
           ownerId: sellerId,
           state: CouponObjectState.CREATED,
         },
@@ -114,7 +114,7 @@ marketplaceRouter.post(
 
       // 판매 상태로 변경
       await objectRepo.update(
-        { id: body.objectId },
+        { objectId: body.objectId },
         {
           state: CouponObjectState.TRADING,
         }
@@ -196,6 +196,7 @@ marketplaceRouter.get("/objects-for-sale", async (req, res) => {
     const objectRepo = AppDataSource.getRepository(CouponObject);
     const objects = await objectRepo.find({
       where: { state: CouponObjectState.TRADING },
+      relations: ["owner", "supplier"],
       order: { id: "DESC" },
     });
 
@@ -252,7 +253,7 @@ marketplaceRouter.get("/objects-for-sale", async (req, res) => {
  *               - objectId
  *             properties:
  *               objectId:
- *                 type: number
+ *                 type: string
  *                 description: 구매할 오브젝트 ID
  *               idempotencyKey:
  *                 type: string
@@ -321,9 +322,10 @@ marketplaceRouter.post(
       const objectRepo = AppDataSource.getRepository(CouponObject);
       const couponObject = await objectRepo.findOne({
         where: {
-          id: body.objectId,
+          objectId: body.objectId,
           state: CouponObjectState.TRADING,
         },
+        relations: ["owner", "issuer"],
       });
 
       if (!couponObject) {
@@ -412,21 +414,14 @@ marketplaceRouter.post(
           (BigInt(couponObject.faceValue) * BigInt(3)) / BigInt(100);
         const remainingAfterFee = BigInt(couponObject.remaining) - supplierFee;
 
-        const supplier = await userRepo.findOne({
-          where: { id: couponObject.supplierId },
-        });
-        if (!supplier) {
-          throw new Error("Supplier not found");
-        }
-
         const supplierPoints = await pointRepo.findOne({
-          where: { userAddress: supplier.address },
+          where: { userAddress: couponObject.supplierAddress },
         });
 
         if (supplierPoints) {
           await queryRunner.manager.update(
             Point,
-            { userAddress: supplier.address },
+            { userAddress: couponObject.supplierAddress },
             {
               balance: (
                 BigInt(supplierPoints.balance) + supplierFee
@@ -435,7 +430,7 @@ marketplaceRouter.post(
           );
         } else {
           await queryRunner.manager.save(Point, {
-            userAddress: supplier.address,
+            userAddress: couponObject.supplierAddress,
             balance: supplierFee.toString(),
           });
         }
@@ -443,7 +438,7 @@ marketplaceRouter.post(
         // 4. Escrow에서 공급자 수수료 차감
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierAddress: couponObject.supplier.address },
+          where: { supplierAddress: couponObject.supplierAddress },
         });
 
         if (escrowAccount) {
@@ -460,7 +455,7 @@ marketplaceRouter.post(
         // 5. 오브젝트 소유권 이전
         await queryRunner.manager.update(
           CouponObject,
-          { id: body.objectId },
+          { objectId: body.objectId },
           {
             ownerId: buyerId,
             remaining: remainingAfterFee.toString(),
@@ -470,9 +465,13 @@ marketplaceRouter.post(
         );
 
         // 6. 거래 기록 저장
+        if (!couponObject.objectId) {
+          throw new Error("CouponObject objectId is null");
+        }
+
         const tradeTransaction = queryRunner.manager.create(TradeTransaction, {
           idempotencyKey,
-          objectId: body.objectId,
+          objectId: couponObject.objectId,
           sellerId: couponObject.ownerId,
           buyerId: buyerId,
           price: couponObject.faceValue,

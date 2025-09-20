@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/data-source";
 import { User, UserRole } from "../entities/User";
+import { Point } from "../entities/Point";
 import {
   requireUser,
   requireUserWithRole,
@@ -49,17 +50,20 @@ const upgradeToBusinessSchema = z.object({});
  *                 role:
  *                   type: string
  *                   enum: [CONSUMER, BUSINESS]
- *                 businessName:
- *                   type: string
- *                 businessDescription:
- *                   type: string
- *                 businessLogo:
- *                   type: string
  *                 hasWallet:
  *                   type: boolean
- *                 createdAt:
- *                   type: string
- *                   format: date-time
+ *                 points:
+ *                   type: object
+ *                   properties:
+ *                     balance:
+ *                       type: string
+ *                       description: 현재 포인트 잔액
+ *                     totalEarned:
+ *                       type: string
+ *                       description: 총 획득 포인트
+ *                     totalSpent:
+ *                       type: string
+ *                       description: 총 사용 포인트
  *       401:
  *         description: 인증 필요
  */
@@ -69,19 +73,33 @@ userRouter.get(
   async (req: AuthenticatedRequest, res) => {
     try {
       const userRepo = AppDataSource.getRepository(User);
+      const pointRepo = AppDataSource.getRepository(Point);
+
       const user = await userRepo.findOne({ where: { id: req.userId } });
 
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
 
-      res.json({
+      // 포인트 정보 조회
+      const point = await pointRepo.findOne({
+        where: { userAddress: user.address },
+      });
+
+      const profileData = {
         id: user.id,
         address: user.address,
         nickname: user.nickname,
         role: user.role,
         hasWallet: user.hasWallet,
-      });
+        points: {
+          balance: point?.balance || "0",
+          totalEarned: point?.totalEarned || "0",
+          totalSpent: point?.totalSpent || "0",
+        },
+      };
+
+      res.json(profileData);
     } catch (err: any) {
       console.error("Profile fetch error:", err);
       res.status(400).json({ error: err.message || "Failed to fetch profile" });
