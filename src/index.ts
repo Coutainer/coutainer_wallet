@@ -8,6 +8,9 @@ import { dbRouter } from "./routes/db";
 import { couponRouter } from "./routes/coupon";
 import { pointRouter } from "./routes/point";
 import { authRouter } from "./routes/auth";
+import { issuanceRouter } from "./routes/issuance";
+import { marketplaceRouter } from "./routes/marketplace";
+import { redemptionRouter } from "./routes/redemption";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import { initDataSource } from "./db/data-source";
@@ -88,6 +91,9 @@ app.use("/coupon", couponRouter);
 app.use("/point", pointRouter);
 app.use("/move", moveRouter);
 app.use("/db", dbRouter);
+app.use("/issuance", issuanceRouter);
+app.use("/marketplace", marketplaceRouter);
+app.use("/redemption", redemptionRouter);
 
 const port = Number(process.env.PORT || 3000);
 

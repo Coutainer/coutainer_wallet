@@ -5,6 +5,10 @@ import { User } from "../entities/User";
 import { Coupon } from "../entities/Coupon";
 import { CouponSale } from "../entities/CouponSale";
 import { Point } from "../entities/Point";
+import { IssuanceStamp } from "../entities/IssuanceStamp";
+import { CouponObject } from "../entities/CouponObject";
+import { EscrowAccount } from "../entities/EscrowAccount";
+import { TradeTransaction } from "../entities/TradeTransaction";
 
 // 환경변수 로드
 dotenv.config();
@@ -22,7 +26,16 @@ export const AppDataSource = new DataSource({
   username,
   password,
   database,
-  entities: [User, Coupon, CouponSale, Point],
+  entities: [
+    User,
+    Coupon,
+    CouponSale,
+    Point,
+    IssuanceStamp,
+    CouponObject,
+    EscrowAccount,
+    TradeTransaction,
+  ],
   migrations: [__dirname + "/migrations/*.{ts,js}"],
   migrationsTableName: "migrations",
   synchronize: false, // 프로덕션에서는 false로 설정
