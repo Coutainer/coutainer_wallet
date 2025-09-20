@@ -31,21 +31,13 @@ export class SupplierCap {
   @Column({ name: "permit_id" })
   permitId!: number;
 
-  // 소유자 정보 (발행자)
-  @ManyToOne(() => User)
-  @JoinColumn({ name: "owner_id" })
-  owner!: User;
+  // 소유자 지갑 주소 (발행자)
+  @Column({ name: "owner_address", type: "varchar", length: 100 })
+  ownerAddress!: string;
 
-  @Column({ name: "owner_id" })
-  ownerId!: number;
-
-  // 공급자 정보
-  @ManyToOne(() => User)
-  @JoinColumn({ name: "supplier_id" })
-  supplier!: User;
-
-  @Column({ name: "supplier_id" })
-  supplierId!: number;
+  // 공급자 지갑 주소
+  @Column({ name: "supplier_address", type: "varchar", length: 100 })
+  supplierAddress!: string;
 
   // 권한 정보
   @Column({ name: "scope", type: "varchar", length: 100 })

@@ -299,7 +299,7 @@ redemptionRouter.post(
         // 1. Escrow에서 공급자에게 remaining 전액 지급
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierId: couponObject.supplierId },
+          where: { supplierAddress: couponObject.supplier.address },
         });
 
         if (
@@ -497,7 +497,7 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
         // 2. Escrow에서 환급 금액 차감
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierId: obj.supplierId },
+          where: { supplierAddress: obj.supplier.address },
         });
 
         if (escrowAccount) {

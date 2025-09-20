@@ -39,15 +39,15 @@ const buyPermitSchema = z.object({
 // Permit 교환 스키마
 const redeemPermitSchema = z.object({
   permitId: z.number().int().positive(),
-  signature: z.string().min(1),
   nonce: z.string().min(1),
 });
 
 // Cap을 이용한 배치 발행 스키마
 const mintWithCapSchema = z.object({
   capId: z.number().int().positive(),
-  recipientId: z.number().int().positive(),
+  recipientAddress: z.string().min(1),
   count: z.number().int().positive(),
+  idempotencyKey: z.string().min(1),
 });
 
 /**
@@ -149,12 +149,6 @@ permitRouter.post(
       const permitRepo = AppDataSource.getRepository(SupplierPermit);
       const userRepo = AppDataSource.getRepository(User);
 
-      // 공급자 정보 조회
-      const supplier = await userRepo.findOne({ where: { id: req.userId } });
-      if (!supplier) {
-        return res.status(400).json({ error: "Supplier not found" });
-      }
-
       // 총 가치 계산
       const totalValue = (
         BigInt(body.limit) * BigInt(body.faceValue)
@@ -162,7 +156,7 @@ permitRouter.post(
 
       // Permit 생성
       const permit = permitRepo.create({
-        supplierId: supplier.id,
+        supplierAddress: req.userAddress!,
         title: body.title,
         description: body.description || null,
         imageUrl: body.imageUrl || null,
@@ -193,7 +187,7 @@ permitRouter.post(
           price: permit.price,
           expiry: permit.expiry,
           status: permit.status,
-          supplierId: permit.supplierId,
+          supplierAddress: permit.supplierAddress,
         },
       });
     } catch (err: any) {
@@ -276,7 +270,6 @@ permitRouter.post(
       // Permit 조회
       const permit = await permitRepo.findOne({
         where: { id: body.permitId, status: PermitStatus.LISTED },
-        relations: ["supplier"],
       });
 
       if (!permit) {
@@ -294,15 +287,9 @@ permitRouter.post(
         return res.status(400).json({ error: "Permit has expired" });
       }
 
-      // 구매자 정보 조회
-      const buyer = await userRepo.findOne({ where: { id: req.userId } });
-      if (!buyer) {
-        return res.status(400).json({ error: "Buyer not found" });
-      }
-
       // 구매자 포인트 확인
       const buyerPoints = await pointRepo.findOne({
-        where: { userAddress: buyer.address },
+        where: { userAddress: req.userAddress! },
       });
 
       if (!buyerPoints || BigInt(buyerPoints.balance) < BigInt(permit.price)) {
@@ -312,7 +299,7 @@ permitRouter.post(
       // 구매자 포인트 차감
       await queryRunner.manager.update(
         Point,
-        { userAddress: buyer.address },
+        { userAddress: req.userAddress! },
         {
           balance: (
             BigInt(buyerPoints.balance) - BigInt(permit.price)
@@ -322,13 +309,13 @@ permitRouter.post(
 
       // 공급자 포인트 증가
       const supplierPoints = await pointRepo.findOne({
-        where: { userAddress: permit.supplier.address },
+        where: { userAddress: permit.supplierAddress },
       });
 
       if (supplierPoints) {
         await queryRunner.manager.update(
           Point,
-          { userAddress: permit.supplier.address },
+          { userAddress: permit.supplierAddress },
           {
             balance: (
               BigInt(supplierPoints.balance) + BigInt(permit.price)
@@ -337,7 +324,7 @@ permitRouter.post(
         );
       } else {
         await queryRunner.manager.save(Point, {
-          userAddress: permit.supplier.address,
+          userAddress: permit.supplierAddress,
           balance: permit.price,
           totalEarned: permit.price,
           totalSpent: "0",
@@ -350,7 +337,7 @@ permitRouter.post(
         { id: permit.id },
         {
           status: PermitStatus.SOLD,
-          buyerId: buyer.id,
+          buyerAddress: req.userAddress!,
           soldAt: new Date(),
         }
       );
@@ -403,17 +390,12 @@ permitRouter.post(
  *             type: object
  *             required:
  *               - permitId
- *               - signature
  *               - nonce
  *             properties:
  *               permitId:
  *                 type: number
  *                 description: 교환할 Permit ID
  *                 example: 1
- *               signature:
- *                 type: string
- *                 description: 서명
- *                 example: "0x1234567890abcdef..."
  *               nonce:
  *                 type: string
  *                 description: 중복 방지 nonce
@@ -459,9 +441,8 @@ permitRouter.post(
         where: {
           id: body.permitId,
           status: PermitStatus.SOLD,
-          buyerId: req.userId,
+          buyerAddress: req.userAddress!,
         },
-        relations: ["supplier"],
       });
 
       if (!permit) {
@@ -479,14 +460,9 @@ permitRouter.post(
         return res.status(400).json({ error: "Permit has expired" });
       }
 
-      // 서명 및 nonce 검증
+      // Nonce 중복 검증
       if (permit.nonce && permit.nonce === body.nonce) {
         return res.status(400).json({ error: "Nonce already used" });
-      }
-
-      // 서명 검증 (간단한 검증 - 실제로는 더 정교한 검증 필요)
-      if (!body.signature || body.signature.length < 10) {
-        return res.status(400).json({ error: "Invalid signature format" });
       }
 
       // JTI 중복 검증 (DB에서 확인)
@@ -497,17 +473,11 @@ permitRouter.post(
         return res.status(400).json({ error: "Permit already redeemed" });
       }
 
-      // 구매자 정보 조회
-      const buyer = await userRepo.findOne({ where: { id: req.userId } });
-      if (!buyer) {
-        return res.status(400).json({ error: "Buyer not found" });
-      }
-
       // Cap 생성
       const cap = capRepo.create({
         permitId: permit.id,
-        ownerId: buyer.id,
-        supplierId: permit.supplierId,
+        ownerAddress: req.userAddress!,
+        supplierAddress: permit.supplierAddress,
         scope: permit.scope,
         remaining: permit.limit,
         originalLimit: permit.limit,
@@ -528,7 +498,6 @@ permitRouter.post(
         { id: permit.id },
         {
           status: PermitStatus.REDEEMED,
-          signature: body.signature,
           nonce: body.nonce,
           redeemedAt: new Date(),
         }
@@ -592,21 +561,26 @@ permitRouter.post(
  *             type: object
  *             required:
  *               - capId
- *               - recipientId
+ *               - recipientAddress
  *               - count
+ *               - idempotencyKey
  *             properties:
  *               capId:
  *                 type: number
  *                 description: 사용할 Cap ID
  *                 example: 1
- *               recipientId:
- *                 type: number
- *                 description: 수령자 사용자 ID
- *                 example: 2
+ *               recipientAddress:
+ *                 type: string
+ *                 description: 수령자 지갑 주소
+ *                 example: "0x1234567890abcdef..."
  *               count:
  *                 type: number
  *                 description: 발행할 수량
  *                 example: 5
+ *               idempotencyKey:
+ *                 type: string
+ *                 description: 중복 방지 키
+ *                 example: "unique-key-123"
  *     responses:
  *       200:
  *         description: 배치 발행 성공
@@ -655,10 +629,9 @@ permitRouter.post(
       const cap = await capRepo.findOne({
         where: {
           id: body.capId,
-          ownerId: req.userId,
+          ownerAddress: req.userAddress!,
           status: CapStatus.ACTIVE,
         },
-        relations: ["supplier"],
       });
 
       if (!cap) {
@@ -681,12 +654,27 @@ permitRouter.post(
         return res.status(400).json({ error: "Insufficient remaining limit" });
       }
 
-      // 수령자 확인
+      // 수령자 확인 (지갑 주소로 조회)
       const recipient = await userRepo.findOne({
-        where: { id: body.recipientId },
+        where: { address: body.recipientAddress },
       });
       if (!recipient) {
         return res.status(400).json({ error: "Recipient not found" });
+      }
+
+      // 공급자와 발행자 정보 조회
+      const supplier = await userRepo.findOne({
+        where: { address: cap.supplierAddress },
+      });
+      if (!supplier) {
+        return res.status(400).json({ error: "Supplier not found" });
+      }
+
+      const issuer = await userRepo.findOne({
+        where: { address: req.userAddress! },
+      });
+      if (!issuer) {
+        return res.status(400).json({ error: "Issuer not found" });
       }
 
       // 발행자 포인트 확인 (트랜잭션 내에서 다시 확인)
@@ -721,12 +709,12 @@ permitRouter.post(
 
       // Escrow 계정에 포인트 예치
       let escrowAccount = await escrowRepo.findOne({
-        where: { supplierId: cap.supplierId },
+        where: { supplierAddress: cap.supplierAddress },
       });
 
       if (!escrowAccount) {
         escrowAccount = escrowRepo.create({
-          supplierId: cap.supplierId,
+          supplierAddress: cap.supplierAddress,
           balance: "0",
           totalDeposited: "0",
           totalReleased: "0",
@@ -749,20 +737,20 @@ permitRouter.post(
       // 공급자에게 3% 수수료 지급
       const supplierFee = (totalCost * BigInt(3)) / BigInt(100);
       const supplierPoints = await pointRepo.findOne({
-        where: { userAddress: cap.supplier.address },
+        where: { userAddress: cap.supplierAddress },
       });
 
       if (supplierPoints) {
         await queryRunner.manager.update(
           Point,
-          { userAddress: cap.supplier.address },
+          { userAddress: cap.supplierAddress },
           {
             balance: (BigInt(supplierPoints.balance) + supplierFee).toString(),
           }
         );
       } else {
         await queryRunner.manager.save(Point, {
-          userAddress: cap.supplier.address,
+          userAddress: cap.supplierAddress,
           balance: supplierFee.toString(),
           totalEarned: supplierFee.toString(),
           totalSpent: "0",
@@ -784,8 +772,8 @@ permitRouter.post(
         const couponObject = objectRepo.create({
           couponId,
           ownerId: recipient.id,
-          supplierId: cap.supplierId,
-          issuerId: req.userId!,
+          supplierId: supplier.id,
+          issuerId: issuer.id,
           title: cap.title,
           description: cap.description,
           imageUrl: cap.imageUrl,
@@ -929,8 +917,8 @@ permitRouter.post(
       }
 
       // 권한 확인 (공급자 또는 소유자 또는 관리자)
-      const isSupplier = cap.supplierId === req.userId;
-      const isOwner = cap.ownerId === req.userId;
+      const isSupplier = cap.supplierAddress === req.userAddress!;
+      const isOwner = cap.ownerAddress === req.userAddress!;
       const isAdmin = req.userId === 1; // 관리자 ID (실제로는 더 정교한 권한 관리 필요)
 
       if (!isSupplier && !isOwner && !isAdmin) {
@@ -980,10 +968,10 @@ permitRouter.post(
  *           enum: [LISTED, SOLD, REDEEMED, EXPIRED, CANCELLED]
  *         description: Permit 상태 필터
  *       - in: query
- *         name: supplierId
+ *         name: supplierAddress
  *         schema:
- *           type: number
- *         description: 공급자 ID 필터
+ *           type: string
+ *         description: 공급자 지갑 주소 필터
  *     responses:
  *       200:
  *         description: Permit 목록 조회 성공
@@ -1002,11 +990,11 @@ permitRouter.post(
 permitRouter.get("/list-permits", async (req, res) => {
   try {
     const permitRepo = AppDataSource.getRepository(SupplierPermit);
-    const { status, supplierId } = req.query;
+    const { status, supplierAddress } = req.query;
 
     const where: any = {};
     if (status) where.status = status;
-    if (supplierId) where.supplierId = parseInt(supplierId as string);
+    if (supplierAddress) where.supplierAddress = supplierAddress as string;
 
     const permits = await permitRepo.find({
       where,
@@ -1026,16 +1014,8 @@ permitRouter.get("/list-permits", async (req, res) => {
       price: permit.price,
       expiry: permit.expiry,
       status: permit.status,
-      supplier: {
-        id: permit.supplier.id,
-        address: permit.supplier.address,
-      },
-      buyer: permit.buyer
-        ? {
-            id: permit.buyer.id,
-            address: permit.buyer.address,
-          }
-        : null,
+      supplierAddress: permit.supplierAddress,
+      buyerAddress: permit.buyerAddress,
       soldAt: permit.soldAt,
       redeemedAt: permit.redeemedAt,
     }));
@@ -1096,7 +1076,7 @@ permitRouter.get(
       const capRepo = AppDataSource.getRepository(SupplierCap);
 
       const caps = await capRepo.find({
-        where: { ownerId: req.userId },
+        where: { ownerAddress: req.userAddress! },
         relations: ["supplier", "permit"],
         order: { id: "DESC" },
       });
@@ -1115,10 +1095,7 @@ permitRouter.get(
         frozen: cap.frozen,
         issuedCount: cap.issuedCount,
         totalValueIssued: cap.totalValueIssued,
-        supplier: {
-          id: cap.supplier.id,
-          address: cap.supplier.address,
-        },
+        supplierAddress: cap.supplierAddress,
         permit: {
           id: cap.permit.id,
           price: cap.permit.price,

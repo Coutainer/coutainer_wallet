@@ -445,7 +445,7 @@ marketplaceRouter.post(
         // 4. Escrow에서 공급자 수수료 차감
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierId: couponObject.supplierId },
+          where: { supplierAddress: couponObject.supplier.address },
         });
 
         if (escrowAccount) {

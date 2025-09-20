@@ -23,21 +23,13 @@ export class SupplierPermit {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  // 공급자 정보
-  @ManyToOne(() => User)
-  @JoinColumn({ name: "supplier_id" })
-  supplier!: User;
+  // 공급자 지갑 주소
+  @Column({ name: "supplier_address", type: "varchar", length: 100 })
+  supplierAddress!: string;
 
-  @Column({ name: "supplier_id" })
-  supplierId!: number;
-
-  // 구매자 정보 (발행자)
-  @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: "buyer_id" })
-  buyer?: User;
-
-  @Column({ name: "buyer_id", nullable: true })
-  buyerId?: number;
+  // 구매자 지갑 주소 (발행자)
+  @Column({ name: "buyer_address", type: "varchar", length: 100, nullable: true })
+  buyerAddress?: string;
 
   // 상품 정보
   @Column({ name: "title", type: "varchar", length: 200 })

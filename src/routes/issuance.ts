@@ -122,10 +122,14 @@ issuanceRouter.post(
   async (req: AuthenticatedRequest, res) => {
     try {
       const body = createStampSchema.parse(req.body);
-      const supplierId = req.userId!;
+      // 공급자 정보 조회
+      const userRepo = AppDataSource.getRepository(User);
+      const supplier = await userRepo.findOne({ where: { id: req.userId! } });
+      if (!supplier) {
+        return res.status(400).json({ error: "Supplier not found" });
+      }
 
       // 발행자 확인
-      const userRepo = AppDataSource.getRepository(User);
       const issuer = await userRepo.findOne({ where: { id: body.issuerId } });
       if (!issuer) {
         return res.status(400).json({ error: "Issuer not found" });
@@ -137,12 +141,12 @@ issuanceRouter.post(
       // Escrow 계정 생성 또는 조회
       const escrowRepo = AppDataSource.getRepository(EscrowAccount);
       let escrowAccount = await escrowRepo.findOne({
-        where: { supplierId },
+        where: { supplierAddress: supplier.address },
       });
 
       if (!escrowAccount) {
         escrowAccount = escrowRepo.create({
-          supplierId,
+          supplierAddress: supplier.address,
           balance: "0",
           totalDeposited: "0",
           totalReleased: "0",
@@ -153,7 +157,7 @@ issuanceRouter.post(
       // 발행 권한 도장 생성
       const stampRepo = AppDataSource.getRepository(IssuanceStamp);
       const stamp = stampRepo.create({
-        supplierId,
+        supplierId: supplier.id,
         issuerId: body.issuerId,
         title: body.title,
         description: body.description || null,
@@ -171,7 +175,7 @@ issuanceRouter.post(
 
       console.log("📋 발행 권한 도장 생성:", {
         stampId: stamp.id,
-        supplier: supplierId,
+        supplier: supplier.id,
         issuer: body.issuerId,
         title: body.title,
         faceValue: body.faceValue,
@@ -356,7 +360,7 @@ issuanceRouter.post(
         // 2. Escrow 계정에 포인트 예치
         const escrowRepo = queryRunner.manager.getRepository(EscrowAccount);
         const escrowAccount = await escrowRepo.findOne({
-          where: { supplierId: stamp.supplierId },
+          where: { supplierAddress: stamp.supplier.address },
         });
 
         if (!escrowAccount) {

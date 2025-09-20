@@ -14,12 +14,8 @@ export class EscrowAccount {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @ManyToOne(() => User)
-  @JoinColumn({ name: "supplier_id" })
-  supplier!: User;
-
-  @Column({ name: "supplier_id" })
-  supplierId!: number;
+  @Column({ name: "supplier_address", type: "varchar", length: 100 })
+  supplierAddress!: string;
 
   @Column({ type: "bigint", default: "0" })
   balance!: string; // 예치된 포인트
