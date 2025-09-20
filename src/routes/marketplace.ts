@@ -8,6 +8,9 @@ import { Point } from "../entities/Point";
 import { EscrowAccount } from "../entities/EscrowAccount";
 import { requireUser, AuthenticatedRequest } from "../middleware/auth";
 import { v4 as uuidv4 } from "uuid";
+import { suiObjectManager } from "../sui/object-manager";
+import { suiSyncService } from "../sui/sync-service";
+import { importKeypairFromMnemonic } from "../sui/wallet";
 
 export const marketplaceRouter = Router();
 
@@ -119,6 +122,23 @@ marketplaceRouter.post(
           state: CouponObjectState.TRADING,
         }
       );
+
+      // Sui 블록체인에 판매 등록 (내부적으로만 처리)
+      try {
+        const userRepo = AppDataSource.getRepository(User);
+        const seller = await userRepo.findOne({ where: { id: sellerId } });
+        if (seller?.mnemonic && body.objectId) {
+          const keypair = importKeypairFromMnemonic(seller.mnemonic);
+          await suiObjectManager.listCouponForSale(
+            keypair,
+            body.objectId,
+            BigInt(body.price)
+          );
+          console.log("🔗 Sui 블록체인에 판매 등록 완료");
+        }
+      } catch (error: any) {
+        console.warn("Sui 판매 등록 실패 (내부 처리):", error.message);
+      }
 
       console.log("🏪 판매 등록:", {
         requestObjectId: body.objectId,
@@ -484,6 +504,36 @@ marketplaceRouter.post(
 
         await queryRunner.commitTransaction();
 
+        // Sui 블록체인에서 구매 처리 (내부적으로만 처리)
+        try {
+          const buyerUser = await userRepo.findOne({ where: { id: buyerId } });
+          const sellerUser = await userRepo.findOne({
+            where: { id: couponObject.ownerId },
+          });
+
+          if (
+            buyerUser?.mnemonic &&
+            sellerUser?.mnemonic &&
+            couponObject.objectId
+          ) {
+            const buyerKeypair = importKeypairFromMnemonic(buyerUser.mnemonic);
+            const sellerKeypair = importKeypairFromMnemonic(
+              sellerUser.mnemonic
+            );
+
+            // Sui에서 구매 트랜잭션 실행
+            await suiObjectManager.buyCoupon(
+              buyerKeypair,
+              `sale_${couponObject.objectId}`, // 판매 오브젝트 ID (실제로는 저장된 값 사용)
+              couponObject.objectId,
+              BigInt(couponObject.faceValue)
+            );
+            console.log("🔗 Sui 블록체인 구매 처리 완료");
+          }
+        } catch (error: any) {
+          console.warn("Sui 구매 처리 실패 (내부 처리):", error.message);
+        }
+
         // 포인트 이동 내역 생성
         const pointMovements = [
           {
@@ -529,6 +579,129 @@ marketplaceRouter.post(
     } catch (err: any) {
       console.error("오브젝트 구매 오류:", err);
       res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+/**
+ * @openapi
+ * /marketplace/sync:
+ *   post:
+ *     tags:
+ *       - 5️⃣ 거래 마켓플레이스
+ *     summary: 마켓플레이스 상태 동기화
+ *     description: Sui 블록체인과 마켓플레이스 상태를 동기화합니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: JWT 토큰
+ *         example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *     responses:
+ *       200:
+ *         description: 동기화 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 success:
+ *                   type: boolean
+ *                 syncedObjects:
+ *                   type: number
+ *                 errors:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       500:
+ *         description: 서버 오류
+ */
+marketplaceRouter.post(
+  "/sync",
+  requireUser,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const result = await suiSyncService.syncMarketplaceStatus();
+
+      res.json({
+        message: result.message,
+        success: result.success,
+        syncedObjects: result.syncedObjects || 0,
+        errors: result.errors || [],
+      });
+    } catch (err: any) {
+      console.error("마켓플레이스 동기화 오류:", err);
+      res.status(500).json({
+        error: err.message,
+        success: false,
+      });
+    }
+  }
+);
+
+/**
+ * @openapi
+ * /marketplace/sync-user:
+ *   post:
+ *     tags:
+ *       - 5️⃣ 거래 마켓플레이스
+ *     summary: 사용자 지갑 동기화
+ *     description: 특정 사용자의 지갑과 Sui 블록체인을 동기화합니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: JWT 토큰
+ *         example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *     responses:
+ *       200:
+ *         description: 동기화 성공
+ *         content:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 success:
+ *                   type: boolean
+ *                 syncedObjects:
+ *                   type: number
+ *                 syncedBalances:
+ *                   type: number
+ *                 errors:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       500:
+ *         description: 서버 오류
+ */
+marketplaceRouter.post(
+  "/sync-user",
+  requireUser,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.userId!;
+      const result = await suiSyncService.syncUserWallet(userId);
+
+      res.json({
+        message: result.message,
+        success: result.success,
+        syncedObjects: result.syncedObjects || 0,
+        syncedBalances: result.syncedBalances || 0,
+        errors: result.errors || [],
+      });
+    } catch (err: any) {
+      console.error("사용자 동기화 오류:", err);
+      res.status(500).json({
+        error: err.message,
+        success: false,
+      });
     }
   }
 );

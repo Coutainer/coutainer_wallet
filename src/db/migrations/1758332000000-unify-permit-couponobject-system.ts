@@ -4,10 +4,25 @@ export class UnifyPermitCouponobjectSystem1758332000000 implements MigrationInte
     name = 'UnifyPermitCouponobjectSystem1758332000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        // CouponObject 테이블에 주소 기반 컬럼 추가
-        await queryRunner.query(`ALTER TABLE \`coupon_objects\` ADD \`owner_address\` varchar(100) NULL`);
-        await queryRunner.query(`ALTER TABLE \`coupon_objects\` ADD \`supplier_address\` varchar(100) NULL`);
-        await queryRunner.query(`ALTER TABLE \`coupon_objects\` ADD \`issuer_address\` varchar(100) NULL`);
+        // CouponObject 테이블에 주소 기반 컬럼 추가 (이미 존재하는지 확인)
+        try {
+            await queryRunner.query(`ALTER TABLE \`coupon_objects\` ADD \`owner_address\` varchar(100) NULL`);
+        } catch (error) {
+            // 컬럼이 이미 존재하는 경우 무시
+            console.log('owner_address column already exists');
+        }
+        
+        try {
+            await queryRunner.query(`ALTER TABLE \`coupon_objects\` ADD \`supplier_address\` varchar(100) NULL`);
+        } catch (error) {
+            console.log('supplier_address column already exists');
+        }
+        
+        try {
+            await queryRunner.query(`ALTER TABLE \`coupon_objects\` ADD \`issuer_address\` varchar(100) NULL`);
+        } catch (error) {
+            console.log('issuer_address column already exists');
+        }
         
         // 기존 ID 기반 데이터를 주소로 마이그레이션
         await queryRunner.query(`
@@ -33,10 +48,24 @@ export class UnifyPermitCouponobjectSystem1758332000000 implements MigrationInte
         await queryRunner.query(`ALTER TABLE \`coupon_objects\` MODIFY COLUMN \`supplier_address\` varchar(100) NOT NULL`);
         await queryRunner.query(`ALTER TABLE \`coupon_objects\` MODIFY COLUMN \`issuer_address\` varchar(100) NOT NULL`);
         
-        // 인덱스 추가
-        await queryRunner.query(`CREATE INDEX \`IDX_coupon_objects_owner_address\` ON \`coupon_objects\` (\`owner_address\`)`);
-        await queryRunner.query(`CREATE INDEX \`IDX_coupon_objects_supplier_address\` ON \`coupon_objects\` (\`supplier_address\`)`);
-        await queryRunner.query(`CREATE INDEX \`IDX_coupon_objects_issuer_address\` ON \`coupon_objects\` (\`issuer_address\`)`);
+        // 인덱스 추가 (이미 존재하는지 확인)
+        try {
+            await queryRunner.query(`CREATE INDEX \`IDX_coupon_objects_owner_address\` ON \`coupon_objects\` (\`owner_address\`)`);
+        } catch (error) {
+            console.log('IDX_coupon_objects_owner_address index already exists');
+        }
+        
+        try {
+            await queryRunner.query(`CREATE INDEX \`IDX_coupon_objects_supplier_address\` ON \`coupon_objects\` (\`supplier_address\`)`);
+        } catch (error) {
+            console.log('IDX_coupon_objects_supplier_address index already exists');
+        }
+        
+        try {
+            await queryRunner.query(`CREATE INDEX \`IDX_coupon_objects_issuer_address\` ON \`coupon_objects\` (\`issuer_address\`)`);
+        } catch (error) {
+            console.log('IDX_coupon_objects_issuer_address index already exists');
+        }
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {

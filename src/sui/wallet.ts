@@ -36,7 +36,7 @@ export async function transferSui(
   tx.transferObjects([coin], tx.pure(recipient));
   const result = await client.signAndExecuteTransactionBlock({
     signer: sender,
-    transactionBlock: tx,
+    transactionBlock: await tx.build({ client }),
     options: { showEffects: true },
   });
   return result.digest;

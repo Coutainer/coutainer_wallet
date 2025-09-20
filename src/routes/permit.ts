@@ -1111,7 +1111,7 @@ permitRouter.get(
         supplierAddress: string;
         permit: { id: number; price: string } | null;
       }> = [];
-      
+
       let couponObjectsList: Array<{
         id: number;
         objectId: string | null;
@@ -1273,12 +1273,20 @@ permitRouter.get(
     try {
       const permitRepo = AppDataSource.getRepository(SupplierPermit);
 
-      const permits = await permitRepo.find({
+      // 내가 올린 Permit 조회
+      const createdPermits = await permitRepo.find({
         where: { supplierAddress: req.userAddress! },
         order: { id: "DESC" },
       });
 
-      const permitsList = permits.map((permit) => ({
+      // 내가 산 Permit 조회
+      const purchasedPermits = await permitRepo.find({
+        where: { buyerAddress: req.userAddress! },
+        order: { id: "DESC" },
+      });
+
+      // 응답 데이터 포맷팅
+      const formatPermit = (permit: any, type: string) => ({
         id: permit.id,
         title: permit.title,
         description: permit.description,
@@ -1294,9 +1302,18 @@ permitRouter.get(
         buyerAddress: permit.buyerAddress,
         soldAt: permit.soldAt,
         redeemedAt: permit.redeemedAt,
-      }));
+        type, // "올린" 또는 "산"
+      });
 
-      res.json({ permits: permitsList });
+      res.json({
+        내가올린: createdPermits.map((permit) => formatPermit(permit, "올린")),
+        내가산: purchasedPermits.map((permit) => formatPermit(permit, "산")),
+        요약: {
+          총올린수: createdPermits.length,
+          총산수: purchasedPermits.length,
+          전체: createdPermits.length + purchasedPermits.length,
+        },
+      });
     } catch (err: any) {
       console.error("List my permits error:", err);
       res.status(400).json({ error: err.message });

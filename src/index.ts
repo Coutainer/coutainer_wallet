@@ -10,9 +10,11 @@ import { redemptionRouter } from "./routes/redemption";
 import { permitRouter } from "./routes/permit";
 import { userRouter } from "./routes/user";
 import debugRouter from "./routes/debug";
+import walletUpgradeRouter from "./routes/wallet-upgrade";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import { initDataSource } from "./db/data-source";
+import { suiScheduler } from "./sui/scheduler";
 
 dotenv.config();
 
@@ -101,6 +103,7 @@ app.use("/redemption", redemptionRouter);
 app.use("/permit", permitRouter);
 app.use("/user", userRouter);
 app.use("/debug", debugRouter);
+app.use("/wallet-upgrade", walletUpgradeRouter);
 
 const port = Number(process.env.PORT || 3000);
 
@@ -114,6 +117,10 @@ async function startServer() {
     app.listen(port, () => {
       console.log(`🚀 Server listening on http://localhost:${port}`);
       console.log(`📚 API docs available at http://localhost:${port}/docs`);
+
+      // Sui 정기 동기화 시작 (5분마다)
+      suiScheduler.start(5);
+      console.log("🔄 Sui 정기 동기화 스케줄러 시작됨");
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error);
