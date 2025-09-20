@@ -45,7 +45,7 @@ const redeemPermitSchema = z.object({
 // Cap을 이용한 배치 발행 스키마
 const mintWithCapSchema = z.object({
   capId: z.number().int().positive(),
-  recipientAddress: z.string().min(1),
+  recipientId: z.number().int().positive(),
   count: z.number().int().positive(),
   idempotencyKey: z.string().min(1),
 });
@@ -276,6 +276,11 @@ permitRouter.post(
         return res
           .status(400)
           .json({ error: "Permit not found or not available" });
+      }
+
+      // 자신의 Permit 구매 방지
+      if (permit.supplierAddress === req.userAddress) {
+        return res.status(400).json({ error: "Cannot buy your own permit" });
       }
 
       // 만료 확인
@@ -561,7 +566,6 @@ permitRouter.post(
  *             type: object
  *             required:
  *               - capId
- *               - recipientAddress
  *               - count
  *               - idempotencyKey
  *             properties:
@@ -569,10 +573,10 @@ permitRouter.post(
  *                 type: number
  *                 description: 사용할 Cap ID
  *                 example: 1
- *               recipientAddress:
- *                 type: string
- *                 description: 수령자 지갑 주소
- *                 example: "0x1234567890abcdef..."
+ *               recipientId:
+ *                 type: number
+ *                 description: 수령자 사용자 ID
+ *                 example: 2
  *               count:
  *                 type: number
  *                 description: 발행할 수량
@@ -654,10 +658,11 @@ permitRouter.post(
         return res.status(400).json({ error: "Insufficient remaining limit" });
       }
 
-      // 수령자 확인 (지갑 주소로 조회)
+      // 수령자 확인 (ID로 조회)
       const recipient = await userRepo.findOne({
-        where: { address: body.recipientAddress },
+        where: { id: body.recipientId },
       });
+
       if (!recipient) {
         return res.status(400).json({ error: "Recipient not found" });
       }
@@ -716,8 +721,6 @@ permitRouter.post(
         escrowAccount = escrowRepo.create({
           supplierAddress: cap.supplierAddress,
           balance: "0",
-          totalDeposited: "0",
-          totalReleased: "0",
         });
         await escrowRepo.save(escrowAccount);
       }
@@ -728,9 +731,6 @@ permitRouter.post(
         { id: escrowAccount.id },
         {
           balance: newEscrowBalance.toString(),
-          totalDeposited: (
-            BigInt(escrowAccount.totalDeposited) + totalCost
-          ).toString(),
         }
       );
 
@@ -764,14 +764,15 @@ permitRouter.post(
       const remaining = (BigInt(cap.faceValue) - supplierFee).toString();
 
       for (let i = 0; i < body.count; i++) {
-        const couponId = `COUPON_${uuidv4()
+        const objectId = `COUPON_${uuidv4()
           .replace(/-/g, "")
           .substring(0, 16)
           .toUpperCase()}`;
 
         const couponObject = objectRepo.create({
-          couponId,
+          objectId,
           ownerId: recipient.id,
+          stampId: null, // Permit 기반 발행에서는 IssuanceStamp를 사용하지 않음
           supplierId: supplier.id,
           issuerId: issuer.id,
           title: cap.title,
@@ -798,7 +799,7 @@ permitRouter.post(
       objects.push(
         ...savedObjects.map((obj) => ({
           id: obj.id,
-          couponId: obj.couponId,
+          objectId: obj.objectId,
           title: obj.title,
           faceValue: obj.faceValue,
           remaining: obj.remaining,
@@ -835,7 +836,10 @@ permitRouter.post(
     } catch (error) {
       await queryRunner.rollbackTransaction();
       console.error("Batch minting error:", error);
-      res.status(400).json({ error: "Failed to mint with cap" });
+      res.status(400).json({
+        error: "Failed to mint with cap",
+        details: error instanceof Error ? error.message : "Unknown error",
+      });
     } finally {
       await queryRunner.release();
     }
@@ -909,7 +913,6 @@ permitRouter.post(
       // Cap 조회
       const cap = await capRepo.findOne({
         where: { id: body.capId },
-        relations: ["supplier", "owner"],
       });
 
       if (!cap) {
@@ -998,7 +1001,6 @@ permitRouter.get("/list-permits", async (req, res) => {
 
     const permits = await permitRepo.find({
       where,
-      relations: ["supplier", "buyer"],
       order: { id: "DESC" },
     });
 
@@ -1035,11 +1037,11 @@ permitRouter.get("/list-permits", async (req, res) => {
  *       - Permit 관리
  *     summary: 내 Cap 목록 조회
  *     description: |
- *       사용자가 소유한 Cap 목록을 조회합니다
+ *       사용자가 소유한 Cap 목록과 발행된 쿠폰 오브젝트를 조회합니다
  *
- *       **⚠️ Business 계정 전용 API**
- *       - 이 API는 Business 계정으로 전환된 사용자만 사용할 수 있습니다
- *       - Consumer 계정으로는 접근이 제한됩니다
+ *       **ℹ️ 모든 사용자 접근 가능**
+ *       - Business 계정: 자신이 소유한 Cap 목록 조회
+ *       - Consumer 계정: 자신이 발행받은 쿠폰 오브젝트 목록 조회
  *     parameters:
  *       - in: header
  *         name: auth
@@ -1060,6 +1062,167 @@ permitRouter.get("/list-permits", async (req, res) => {
  *                   type: array
  *                   items:
  *                     type: object
+ *                 couponObjects:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *       400:
+ *         description: 잘못된 요청
+ *       401:
+ *         description: 인증 필요
+ *       403:
+ *         description: 인증 오류
+ */
+permitRouter.get(
+  "/my-caps",
+  requireUserWithRole,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const capRepo = AppDataSource.getRepository(SupplierCap);
+      const couponObjectRepo = AppDataSource.getRepository(CouponObject);
+      const userRepo = AppDataSource.getRepository(User);
+
+      // 사용자 정보 조회
+      const user = await userRepo.findOne({
+        where: { address: req.userAddress! },
+      });
+
+      if (!user) {
+        return res.status(400).json({ error: "User not found" });
+      }
+
+      let capsList: any[] = [];
+      let couponObjectsList: any[] = [];
+
+      if (req.userRole === "BUSINESS") {
+        // Business 계정: 자신이 소유한 Cap 목록 조회
+        const caps = await capRepo.find({
+          where: { ownerAddress: req.userAddress! },
+          relations: ["permit"],
+          order: { id: "DESC" },
+        });
+
+        capsList = caps.map((cap) => ({
+          id: cap.id,
+          scope: cap.scope,
+          remaining: cap.remaining,
+          originalLimit: cap.originalLimit,
+          faceValue: cap.faceValue,
+          title: cap.title,
+          description: cap.description,
+          imageUrl: cap.imageUrl,
+          expiry: cap.expiry,
+          status: cap.status,
+          frozen: cap.frozen,
+          issuedCount: cap.issuedCount,
+          totalValueIssued: cap.totalValueIssued,
+          supplierAddress: cap.supplierAddress,
+          permit: cap.permit
+            ? {
+                id: cap.permit.id,
+                price: cap.permit.price,
+              }
+            : null,
+        }));
+      }
+
+      // 모든 사용자: 자신이 발행받은 쿠폰 오브젝트 목록 조회
+      const couponObjects = await couponObjectRepo.find({
+        where: { ownerId: user.id },
+        order: { id: "DESC" },
+      });
+
+      couponObjectsList = couponObjects.map((obj) => ({
+        id: obj.id,
+        objectId: obj.objectId,
+        title: obj.title,
+        description: obj.description,
+        imageUrl: obj.imageUrl,
+        faceValue: obj.faceValue,
+        remaining: obj.remaining,
+        tradeCount: obj.tradeCount,
+        state: obj.state,
+        expiresAt: obj.expiresAt,
+        issuedAt: obj.issuedAt,
+        usedAt: obj.usedAt,
+        supplierId: obj.supplierId,
+        issuerId: obj.issuerId,
+      }));
+
+      res.json({
+        caps: capsList,
+        couponObjects: couponObjectsList,
+      });
+    } catch (err: any) {
+      console.error("List my caps error:", err);
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+/**
+ * @openapi
+ * /permit/my-permits:
+ *   get:
+ *     tags:
+ *       - Permit 관리
+ *     summary: 내 Permit 목록 조회
+ *     description: |
+ *       사용자가 소유한 Permit 목록을 조회합니다
+ *
+ *       **⚠️ Business 계정 전용 API**
+ *       - 이 API는 Business 계정으로 전환된 사용자만 사용할 수 있습니다
+ *       - Consumer 계정으로는 접근이 제한됩니다
+ *     parameters:
+ *       - in: header
+ *         name: auth
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: JWT 토큰 (Bearer {token} 형식)
+ *         example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *     responses:
+ *       200:
+ *         description: Permit 목록 조회 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 permits:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: number
+ *                       title:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       imageUrl:
+ *                         type: string
+ *                       scope:
+ *                         type: string
+ *                       limit:
+ *                         type: string
+ *                       faceValue:
+ *                         type: string
+ *                       totalValue:
+ *                         type: string
+ *                       price:
+ *                         type: string
+ *                       expiry:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                       supplierAddress:
+ *                         type: string
+ *                       buyerAddress:
+ *                         type: string
+ *                       soldAt:
+ *                         type: string
+ *                       redeemedAt:
+ *                         type: string
  *       400:
  *         description: 잘못된 요청
  *       401:
@@ -1068,43 +1231,39 @@ permitRouter.get("/list-permits", async (req, res) => {
  *         description: Business 계정이 아님 (Consumer 계정으로는 접근 불가)
  */
 permitRouter.get(
-  "/my-caps",
+  "/my-permits",
   requireUserWithRole,
   requireBusiness,
   async (req: AuthenticatedRequest, res) => {
     try {
-      const capRepo = AppDataSource.getRepository(SupplierCap);
+      const permitRepo = AppDataSource.getRepository(SupplierPermit);
 
-      const caps = await capRepo.find({
-        where: { ownerAddress: req.userAddress! },
-        relations: ["supplier", "permit"],
+      const permits = await permitRepo.find({
+        where: { supplierAddress: req.userAddress! },
         order: { id: "DESC" },
       });
 
-      const capsList = caps.map((cap) => ({
-        id: cap.id,
-        scope: cap.scope,
-        remaining: cap.remaining,
-        originalLimit: cap.originalLimit,
-        faceValue: cap.faceValue,
-        title: cap.title,
-        description: cap.description,
-        imageUrl: cap.imageUrl,
-        expiry: cap.expiry,
-        status: cap.status,
-        frozen: cap.frozen,
-        issuedCount: cap.issuedCount,
-        totalValueIssued: cap.totalValueIssued,
-        supplierAddress: cap.supplierAddress,
-        permit: {
-          id: cap.permit.id,
-          price: cap.permit.price,
-        },
+      const permitsList = permits.map((permit) => ({
+        id: permit.id,
+        title: permit.title,
+        description: permit.description,
+        imageUrl: permit.imageUrl,
+        scope: permit.scope,
+        limit: permit.limit,
+        faceValue: permit.faceValue,
+        totalValue: permit.totalValue,
+        price: permit.price,
+        expiry: permit.expiry,
+        status: permit.status,
+        supplierAddress: permit.supplierAddress,
+        buyerAddress: permit.buyerAddress,
+        soldAt: permit.soldAt,
+        redeemedAt: permit.redeemedAt,
       }));
 
-      res.json({ caps: capsList });
+      res.json({ permits: permitsList });
     } catch (err: any) {
-      console.error("List my caps error:", err);
+      console.error("List my permits error:", err);
       res.status(400).json({ error: err.message });
     }
   }

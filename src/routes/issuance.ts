@@ -148,8 +148,6 @@ issuanceRouter.post(
         escrowAccount = escrowRepo.create({
           supplierAddress: supplier.address,
           balance: "0",
-          totalDeposited: "0",
-          totalReleased: "0",
         });
         await escrowRepo.save(escrowAccount);
       }
@@ -249,7 +247,7 @@ issuanceRouter.post(
  *                   properties:
  *                     id:
  *                       type: number
- *                     couponId:
+ *                     objectId:
  *                       type: string
  *                     title:
  *                       type: string
@@ -374,9 +372,6 @@ issuanceRouter.post(
           { id: escrowAccount.id },
           {
             balance: newEscrowBalance.toString(),
-            totalDeposited: (
-              BigInt(escrowAccount.totalDeposited) + BigInt(stamp.faceValue)
-            ).toString(),
           }
         );
 
@@ -416,13 +411,13 @@ issuanceRouter.post(
 
         // 4. 오브젝트 생성
         const objectRepo = queryRunner.manager.getRepository(CouponObject);
-        const couponId = `COUPON_${uuidv4()
+        const objectId = `COUPON_${uuidv4()
           .replace(/-/g, "")
           .substring(0, 16)
           .toUpperCase()}`;
 
         const couponObject = objectRepo.create({
-          couponId,
+          objectId,
           ownerId: body.recipientId,
           stampId: stamp.id,
           supplierId: stamp.supplierId,
@@ -471,8 +466,8 @@ issuanceRouter.post(
         ];
 
         console.log("🎫 오브젝트 발행 완료:", {
-          objectId: couponObject.id,
-          couponId: couponObject.couponId,
+          id: couponObject.id,
+          objectId: couponObject.objectId,
           title: couponObject.title,
           faceValue: couponObject.faceValue,
           remaining: couponObject.remaining,
@@ -483,7 +478,7 @@ issuanceRouter.post(
         res.json({
           object: {
             id: couponObject.id,
-            couponId: couponObject.couponId,
+            objectId: couponObject.objectId,
             title: couponObject.title,
             faceValue: couponObject.faceValue,
             remaining: couponObject.remaining,

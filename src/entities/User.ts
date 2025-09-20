@@ -19,7 +19,10 @@ export class User {
 
   @Index({ unique: true })
   @Column({ type: "varchar", length: 200 })
-  address!: string; // Sui address
+  address!: string; // 지갑 주소
+
+  @Column({ name: "zk_login_address", type: "varchar", length: 200, nullable: true })
+  zkLoginAddress!: string | null; // zkLogin 주소
 
   @Column({ type: "varchar", length: 200, nullable: true })
   nickname!: string | null;
@@ -27,8 +30,8 @@ export class User {
   @Column({ type: "text", nullable: true })
   mnemonic!: string | null; // 지갑 복구용 니모닉
 
-  @Column({ type: "boolean", default: false })
-  hasWallet!: boolean; // 지갑 생성 여부
+  @Column({ type: "boolean", default: true })
+  hasWallet!: boolean; // 지갑 생성 여부 (기본값 true)
 
   @Column({ type: "varchar", length: 50, nullable: true })
   salt!: string | null; // zkLogin용 salt

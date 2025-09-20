@@ -8,13 +8,15 @@ import { User, UserRole } from "../entities/User";
 dotenv.config();
 
 export interface AuthenticatedRequest extends Request {
-  userAddress?: string;
+  userAddress?: string; // 지갑 주소
+  zkLoginAddress?: string; // zkLogin 주소
   userId?: number;
   userEmail?: string;
   userRole?: UserRole;
   user?: {
     id: number;
-    address: string;
+    address: string; // 지갑 주소
+    zkLoginAddress?: string; // zkLogin 주소
     email?: string;
     role?: UserRole;
   };
@@ -41,12 +43,14 @@ export function requireUser(
     console.log("Decoded token:", decoded);
 
     // 토큰에서 사용자 정보 추출
-    req.userAddress = decoded.address;
+    req.userAddress = decoded.address; // 지갑 주소
+    req.zkLoginAddress = decoded.zkLoginAddress; // zkLogin 주소
     req.userId = decoded.sub;
     req.userEmail = decoded.email;
     req.user = {
       id: decoded.sub,
-      address: decoded.address,
+      address: decoded.address, // 지갑 주소
+      zkLoginAddress: decoded.zkLoginAddress, // zkLogin 주소
       email: decoded.email,
     };
 
@@ -142,12 +146,14 @@ export function requireAdmin(
     const decoded = jwt.verify(token, sessionSecret) as any;
 
     // 토큰에서 사용자 정보 추출
-    req.userAddress = decoded.address;
+    req.userAddress = decoded.address; // 지갑 주소
+    req.zkLoginAddress = decoded.zkLoginAddress; // zkLogin 주소
     req.userId = decoded.sub;
     req.userEmail = decoded.email;
     req.user = {
       id: decoded.sub,
-      address: decoded.address,
+      address: decoded.address, // 지갑 주소
+      zkLoginAddress: decoded.zkLoginAddress, // zkLogin 주소
       email: decoded.email,
     };
 

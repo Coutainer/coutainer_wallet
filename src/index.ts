@@ -5,7 +5,6 @@ import cors from "cors";
 import { walletRouter } from "./routes/wallet";
 import { moveRouter } from "./routes/move";
 import { dbRouter } from "./routes/db";
-import { couponRouter } from "./routes/coupon";
 import { pointRouter } from "./routes/point";
 import { authRouter } from "./routes/auth";
 import { issuanceRouter } from "./routes/issuance";
@@ -13,6 +12,7 @@ import { marketplaceRouter } from "./routes/marketplace";
 import { redemptionRouter } from "./routes/redemption";
 import { permitRouter } from "./routes/permit";
 import { userRouter } from "./routes/user";
+import debugRouter from "./routes/debug";
 import swaggerUi from "swagger-ui-express";
 import swaggerJSDoc from "swagger-jsdoc";
 import { initDataSource } from "./db/data-source";
@@ -79,6 +79,10 @@ const swaggerSpec = swaggerJSDoc({
       { name: "7️⃣ Permit 관리", description: "Permit 상장/구매 및 Cap 발급" },
       { name: "Move", description: "Sui Move 스마트 컨트랙트 호출" },
       { name: "데이터베이스", description: "DB 상태 확인" },
+      {
+        name: "Debug (개발용)",
+        description: "개발/테스트 환경 전용 디버깅 API",
+      },
     ],
     servers: [
       {
@@ -97,7 +101,6 @@ app.get("/health", (_req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/wallet", walletRouter);
-app.use("/coupon", couponRouter);
 app.use("/point", pointRouter);
 app.use("/move", moveRouter);
 app.use("/db", dbRouter);
@@ -106,6 +109,7 @@ app.use("/marketplace", marketplaceRouter);
 app.use("/redemption", redemptionRouter);
 app.use("/permit", permitRouter);
 app.use("/user", userRouter);
+app.use("/debug", debugRouter);
 
 const port = Number(process.env.PORT || 3000);
 

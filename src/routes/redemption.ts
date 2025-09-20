@@ -75,7 +75,7 @@ const redeemTokenSchema = z.object({
  *                   properties:
  *                     id:
  *                       type: number
- *                     couponId:
+ *                     objectId:
  *                       type: string
  *                     title:
  *                       type: string
@@ -152,8 +152,8 @@ redemptionRouter.post(
       );
 
       console.log("🎫 일회용 토큰 생성:", {
-        objectId: body.objectId,
-        couponId: couponObject.couponId,
+        requestObjectId: body.objectId,
+        objectId: couponObject.objectId,
         userId,
         jti,
         expiresAt,
@@ -165,7 +165,7 @@ redemptionRouter.post(
         expiresAt,
         object: {
           id: couponObject.id,
-          couponId: couponObject.couponId,
+          objectId: couponObject.objectId,
           title: couponObject.title,
           remaining: couponObject.remaining,
         },
@@ -215,7 +215,7 @@ redemptionRouter.post(
  *                   properties:
  *                     id:
  *                       type: number
- *                     couponId:
+ *                     objectId:
  *                       type: string
  *                     title:
  *                       type: string
@@ -271,7 +271,6 @@ redemptionRouter.post(
           jti,
           state: CouponObjectState.CREATED,
         },
-        relations: ["supplier", "stamp"],
       });
 
       if (!couponObject) {
@@ -345,9 +344,6 @@ redemptionRouter.post(
             { id: escrowAccount.id },
             {
               balance: newEscrowBalance.toString(),
-              totalReleased: (
-                BigInt(escrowAccount.totalReleased) + BigInt(remaining)
-              ).toString(),
             }
           );
         }
@@ -376,8 +372,8 @@ redemptionRouter.post(
         ];
 
         console.log("✅ 쿠폰 사용 완료:", {
-          objectId,
-          couponId: couponObject.couponId,
+          requestObjectId: objectId,
+          objectId: couponObject.objectId,
           jti,
           userId,
           remaining,
@@ -389,7 +385,7 @@ redemptionRouter.post(
           message: "Token verified and coupon redeemed successfully",
           object: {
             id: couponObject.id,
-            couponId: couponObject.couponId,
+            objectId: couponObject.objectId,
             title: couponObject.title,
             remaining: "0",
             state: CouponObjectState.REDEEMED,
@@ -445,7 +441,6 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
         state: CouponObjectState.CREATED,
         expiresAt: { $lt: now } as any, // TypeORM에서 LessThan 사용
       },
-      relations: ["issuer", "supplier"],
     });
 
     if (expiredObjects.length === 0) {
@@ -508,9 +503,6 @@ redemptionRouter.post("/expire-objects", async (req, res) => {
             { id: escrowAccount.id },
             {
               balance: newEscrowBalance.toString(),
-              totalReleased: (
-                BigInt(escrowAccount.totalReleased) + BigInt(obj.remaining)
-              ).toString(),
             }
           );
         }

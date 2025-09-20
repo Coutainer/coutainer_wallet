@@ -18,7 +18,7 @@ export const authRouter = Router();
 
 // 계정 생성 시 자동으로 지갑 생성하는 함수
 async function createUserWithWallet(
-  address: string,
+  zkLoginAddress: string,
   nickname: string | null = null,
   salt: string | null = null
 ) {
@@ -27,9 +27,10 @@ async function createUserWithWallet(
   // 새 지갑 생성
   const wallet = generateWallet();
 
-  // 사용자 생성 (계정 주소와 지갑 주소 모두 저장)
+  // 사용자 생성 (지갑 주소를 메인 주소로 사용)
   const user = userRepo.create({
-    address: address, // zkLogin으로 계산된 계정 주소 사용
+    address: wallet.address, // 지갑 주소를 메인 주소로 사용
+    zkLoginAddress: zkLoginAddress, // zkLogin 주소 별도 저장
     nickname: nickname || `user_${Date.now()}`,
     mnemonic: wallet.mnemonic,
     hasWallet: true,
@@ -39,8 +40,8 @@ async function createUserWithWallet(
   await userRepo.save(user);
   console.log("Created new user with wallet:", {
     id: user.id,
-    address: user.address,
-    walletAddress: wallet.address,
+    address: user.address, // 지갑 주소
+    zkLoginAddress: user.zkLoginAddress, // zkLogin 주소
     hasWallet: user.hasWallet,
     salt: salt,
   });
@@ -558,11 +559,11 @@ authRouter.post("/zklogin", async (req, res) => {
     let computedAddress: string;
 
     if (user) {
-      // 기존 사용자: 저장된 주소 그대로 사용
-      computedAddress = user.address;
+      // 기존 사용자: 지갑 주소 사용
       console.log("Found existing zkLogin user:", {
         id: user.id,
-        address: user.address,
+        address: user.address, // 지갑 주소
+        zkLoginAddress: user.zkLoginAddress, // zkLogin 주소
         email: user.nickname,
       });
     } else {
@@ -591,7 +592,8 @@ authRouter.post("/zklogin", async (req, res) => {
     const session = jwt.sign(
       {
         sub: user.id,
-        address: user.address,
+        address: user.address, // 지갑 주소
+        zkLoginAddress: user.zkLoginAddress, // zkLogin 주소
         iss: "coutainer",
         email: claims.email,
         role: user.role,
@@ -605,7 +607,7 @@ authRouter.post("/zklogin", async (req, res) => {
     res.json({
       token: session,
       user: { id: user.id, address: user.address },
-      zkLoginAddress: computedAddress,
+      zkLoginAddress: user.zkLoginAddress,
     });
   } catch (err: any) {
     console.error("ZkLogin error:", err);
@@ -639,12 +641,12 @@ async function verifyIdToken(id_token: string) {
   try {
     console.log("Verifying token with issuer:", env.oidcIssuer);
 
-    const JWKS = jose.createRemoteJWKSet(
-      new URL(`${env.oidcIssuer}/.well-known/openid-configuration/jwks`)
-    );
+  const JWKS = jose.createRemoteJWKSet(
+    new URL(`${env.oidcIssuer}/.well-known/openid-configuration/jwks`)
+  );
 
     const verifyOptions: any = {
-      issuer: env.oidcIssuer,
+    issuer: env.oidcIssuer,
     };
 
     if (env.audience) {
@@ -655,7 +657,7 @@ async function verifyIdToken(id_token: string) {
 
     const { payload } = await jose.jwtVerify(id_token, JWKS, verifyOptions);
     console.log("Token verification successful");
-    return payload;
+  return payload;
   } catch (error: any) {
     console.error("Token verification failed:", error);
     throw new Error(`JWT verification failed: ${error.message}`);
@@ -735,10 +737,11 @@ authRouter.post("/login", async (req, res) => {
     let user = await userRepo.findOne({ where: { nickname: email } });
 
     if (user) {
-      // 기존 사용자: 저장된 주소 그대로 사용
+      // 기존 사용자: 지갑 주소 사용
       console.log("Found existing user:", {
         id: user.id,
-        address: user.address,
+        address: user.address, // 지갑 주소
+        zkLoginAddress: user.zkLoginAddress, // zkLogin 주소
         email: user.nickname,
       });
     } else {
@@ -765,7 +768,8 @@ authRouter.post("/login", async (req, res) => {
     const session = jwt.sign(
       {
         sub: user.id,
-        address: user.address,
+        address: user.address, // 지갑 주소
+        zkLoginAddress: user.zkLoginAddress, // zkLogin 주소
         iss: "coutainer",
         email: claims.email,
         role: user.role,

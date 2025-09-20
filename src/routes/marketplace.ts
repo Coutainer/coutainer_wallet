@@ -70,7 +70,7 @@ const buyObjectSchema = z.object({
  *                   properties:
  *                     id:
  *                       type: number
- *                     couponId:
+ *                     objectId:
  *                       type: string
  *                     title:
  *                       type: string
@@ -116,13 +116,13 @@ marketplaceRouter.post(
       await objectRepo.update(
         { id: body.objectId },
         {
-          state: CouponObjectState.TRANSFERRED,
+          state: CouponObjectState.TRADING,
         }
       );
 
       console.log("🏪 판매 등록:", {
-        objectId: body.objectId,
-        couponId: couponObject.couponId,
+        requestObjectId: body.objectId,
+        objectId: couponObject.objectId,
         seller: sellerId,
         price: body.price,
         title: couponObject.title,
@@ -132,10 +132,10 @@ marketplaceRouter.post(
         message: "Object listed for sale successfully",
         object: {
           id: couponObject.id,
-          couponId: couponObject.couponId,
+          objectId: couponObject.objectId,
           title: couponObject.title,
           price: body.price,
-          state: CouponObjectState.TRANSFERRED,
+          state: CouponObjectState.TRADING,
         },
       });
     } catch (err: any) {
@@ -165,7 +165,7 @@ marketplaceRouter.post(
  *                 properties:
  *                   id:
  *                     type: number
- *                   couponId:
+ *                   objectId:
  *                     type: string
  *                   title:
  *                     type: string
@@ -195,14 +195,13 @@ marketplaceRouter.get("/objects-for-sale", async (req, res) => {
   try {
     const objectRepo = AppDataSource.getRepository(CouponObject);
     const objects = await objectRepo.find({
-      where: { state: CouponObjectState.TRANSFERRED },
-      relations: ["owner", "supplier", "issuer"],
+      where: { state: CouponObjectState.TRADING },
       order: { id: "DESC" },
     });
 
     const objectsForSale = objects.map((obj) => ({
       id: obj.id,
-      couponId: obj.couponId,
+      objectId: obj.objectId,
       title: obj.title,
       description: obj.description,
       imageUrl: obj.imageUrl,
@@ -323,9 +322,8 @@ marketplaceRouter.post(
       const couponObject = await objectRepo.findOne({
         where: {
           id: body.objectId,
-          state: CouponObjectState.TRANSFERRED,
+          state: CouponObjectState.TRADING,
         },
-        relations: ["owner", "supplier", "stamp"],
       });
 
       if (!couponObject) {
@@ -455,9 +453,6 @@ marketplaceRouter.post(
             { id: escrowAccount.id },
             {
               balance: newEscrowBalance.toString(),
-              totalReleased: (
-                BigInt(escrowAccount.totalReleased) + supplierFee
-              ).toString(),
             }
           );
         }
@@ -507,8 +502,8 @@ marketplaceRouter.post(
         ];
 
         console.log("💰 오브젝트 구매 완료:", {
-          objectId: body.objectId,
-          couponId: couponObject.couponId,
+          requestObjectId: body.objectId,
+          objectId: couponObject.objectId,
           buyer: buyerId,
           seller: couponObject.ownerId,
           price: couponObject.faceValue,

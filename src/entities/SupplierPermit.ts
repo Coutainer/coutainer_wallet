@@ -28,7 +28,12 @@ export class SupplierPermit {
   supplierAddress!: string;
 
   // 구매자 지갑 주소 (발행자)
-  @Column({ name: "buyer_address", type: "varchar", length: 100, nullable: true })
+  @Column({
+    name: "buyer_address",
+    type: "varchar",
+    length: 100,
+    nullable: true,
+  })
   buyerAddress?: string;
 
   // 상품 정보

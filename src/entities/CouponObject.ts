@@ -13,7 +13,7 @@ import { IssuanceStamp } from "./IssuanceStamp";
 
 export enum CouponObjectState {
   CREATED = "CREATED",
-  TRANSFERRED = "TRANSFERRED",
+  TRADING = "TRADING",
   REDEEMED = "REDEEMED",
   EXPIRED = "EXPIRED",
 }
@@ -23,8 +23,8 @@ export class CouponObject {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ name: "coupon_id", type: "varchar", length: 100, unique: true })
-  couponId!: string; // 쿠폰 고유 ID
+  @Column({ name: "object_id", type: "varchar", length: 100, nullable: true })
+  objectId!: string | null; // 오브젝트 고유 ID
 
   // 소유자 정보
   @ManyToOne(() => User)
@@ -39,8 +39,8 @@ export class CouponObject {
   @JoinColumn({ name: "stamp_id" })
   stamp!: IssuanceStamp;
 
-  @Column({ name: "stamp_id" })
-  stampId!: number;
+  @Column({ name: "stamp_id", nullable: true })
+  stampId!: number | null;
 
   // 공급자 정보
   @ManyToOne(() => User)

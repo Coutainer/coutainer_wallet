@@ -2,8 +2,6 @@ import "reflect-metadata";
 import dotenv from "dotenv";
 import { DataSource } from "typeorm";
 import { User } from "../entities/User";
-import { Coupon } from "../entities/Coupon";
-import { CouponSale } from "../entities/CouponSale";
 import { Point } from "../entities/Point";
 import { IssuanceStamp } from "../entities/IssuanceStamp";
 import { CouponObject } from "../entities/CouponObject";
@@ -30,8 +28,6 @@ export const AppDataSource = new DataSource({
   database,
   entities: [
     User,
-    Coupon,
-    CouponSale,
     Point,
     IssuanceStamp,
     CouponObject,
