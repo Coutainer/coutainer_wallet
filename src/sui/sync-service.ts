@@ -69,7 +69,15 @@ export class SuiSyncService {
             });
 
             if (existingCoupon) {
-              // 상태 동기화
+              // TRADING 상태는 블록체인 동기화로 변경하지 않음
+              if (existingCoupon.state === CouponObjectState.TRADING) {
+                console.log(
+                  `📝 오브젝트 ${suiCoupon.id}은 TRADING 상태로 유지됨 (동기화 스킵)`
+                );
+                continue;
+              }
+
+              // 상태 동기화 (TRADING이 아닌 경우만)
               const newState = suiCoupon.used
                 ? CouponObjectState.REDEEMED
                 : CouponObjectState.CREATED;
@@ -229,6 +237,21 @@ export class SuiSyncService {
       const fields = suiObject.data.content?.fields;
       if (fields) {
         const isUsed = fields.used === true;
+
+        // TRADING 상태는 블록체인 동기화로 변경하지 않음
+        // TRADING 상태는 마켓플레이스에서 관리되는 로컬 상태
+        if (coupon.state === CouponObjectState.TRADING) {
+          console.log(
+            `📝 오브젝트 ${objectId}은 TRADING 상태로 유지됨 (블록체인 동기화 스킵)`
+          );
+          return {
+            success: true,
+            message: "Object is in TRADING state, skipping blockchain sync",
+            syncedObjects: 0,
+          };
+        }
+
+        // CREATED 상태인 경우에만 블록체인 상태로 동기화
         const newState = isUsed
           ? CouponObjectState.REDEEMED
           : CouponObjectState.CREATED;
@@ -264,6 +287,7 @@ export class SuiSyncService {
 
   /**
    * 마켓플레이스 상태 동기화
+   * 현재 구현에서는 TRADING 상태를 유지하고, 실제 CouponSale 객체 존재 여부만 확인
    */
   async syncMarketplaceStatus(): Promise<SyncResult> {
     try {
@@ -275,40 +299,53 @@ export class SuiSyncService {
       let syncedObjects = 0;
       const errors: string[] = [];
 
+      console.log(
+        `📊 마켓플레이스 동기화: ${tradingObjects.length}개의 TRADING 상태 오브젝트 확인`
+      );
+
       for (const coupon of tradingObjects) {
         if (!coupon.objectId) continue;
 
         try {
+          // CouponSale 객체 확인 (실제 판매 등록 여부)
+          const sales = await suiObjectManager.getCouponsForSale();
+          const hasActiveSale = sales.some(
+            (sale) => sale.couponId === coupon.objectId && sale.active
+          );
+
+          if (!hasActiveSale) {
+            console.log(
+              `⚠️ 오브젝트 ${coupon.objectId}의 판매 등록이 블록체인에서 찾을 수 없음 (TRADING 상태 유지)`
+            );
+            // 실제 판매 등록이 실패했을 수 있지만, TRADING 상태는 유지
+            continue;
+          }
+
+          // 기본 오브젝트 상태 확인
           const suiObject = await suiObjectManager.getObjectInfo(
             coupon.objectId
           );
 
-          if (!suiObject || !suiObject.data) {
-            // 오브젝트가 블록체인에 없으면 상태를 CREATED로 변경
-            await couponRepo.update(
-              { id: coupon.id },
-              { state: CouponObjectState.CREATED }
-            );
-            console.log(
-              `📝 오브젝트 ${coupon.objectId} 상태 변경: TRADING → CREATED (블록체인에서 찾을 수 없음)`
-            );
-            syncedObjects++;
-            continue;
-          }
-
-          const fields = suiObject.data.content?.fields;
-          if (fields && fields.used === true) {
-            // 사용된 오브젝트는 REDEEMED 상태로 변경
-            await couponRepo.update(
-              { id: coupon.id },
-              { state: CouponObjectState.REDEEMED }
-            );
-            console.log(
-              `📝 오브젝트 ${coupon.objectId} 상태 변경: TRADING → REDEEMED`
-            );
-            syncedObjects++;
+          if (suiObject && suiObject.data) {
+            const fields = suiObject.data.content?.fields;
+            if (fields && fields.used === true) {
+              // 사용된 오브젝트는 REDEEMED 상태로 변경
+              await couponRepo.update(
+                { id: coupon.id },
+                { state: CouponObjectState.REDEEMED }
+              );
+              console.log(
+                `📝 오브젝트 ${coupon.objectId} 상태 변경: TRADING → REDEEMED`
+              );
+              syncedObjects++;
+            } else {
+              console.log(`✅ 오브젝트 ${coupon.objectId} TRADING 상태 유지됨`);
+            }
           }
         } catch (error: any) {
+          console.log(
+            `⚠️ 오브젝트 ${coupon.objectId} 동기화 오류 (TRADING 상태 유지): ${error.message}`
+          );
           errors.push(
             `Object ${coupon.objectId} sync failed: ${error.message}`
           );
